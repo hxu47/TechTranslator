@@ -45,9 +45,7 @@ Resources:
           Required: true
       EmailConfiguration:
         EmailSendingAccount: COGNITO_DEFAULT
-      Tags:
-        - Key: Project
-          Value: !Ref ProjectName
+      # Removed the Tags property that was causing the error
 
   # Cognito User Pool Client
   UserPoolClient:
