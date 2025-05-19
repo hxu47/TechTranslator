@@ -3,6 +3,9 @@
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
+# Disable AWS CLI pager to prevent interactive less
+export AWS_PAGER=""
+
 # Configuration
 PROJECT_NAME="TechTranslator"
 REGION="us-east-1"  # Use the region that's available in your AWS Academy Lab
@@ -16,77 +19,77 @@ NC='\033[0m' # No Color
 
 echo -e "${YELLOW}Starting deployment of $PROJECT_NAME infrastructure...${NC}"
 
-# Function to deploy a CloudFormation stack
-deploy_stack() {
-    local stack_name="$1"
-    local template_file="$2"
-    local parameters="$3"
-    
-    echo -e "${YELLOW}Deploying $stack_name...${NC}"
-    
-    # Check if stack exists
-    if aws cloudformation describe-stacks --stack-name "$stack_name" --region "$REGION" &> /dev/null; then
-        # Update existing stack
-        echo "Stack $stack_name exists, updating..."
-        if aws cloudformation update-stack \
-            --stack-name "$stack_name" \
-            --template-body "file://$template_file" \
-            --parameters "$parameters" \
-            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --region "$REGION"; then
-            
-            echo "Waiting for stack update to complete..."
-            aws cloudformation wait stack-update-complete \
-                --stack-name "$stack_name" \
-                --region "$REGION"
-        else
-            echo "No updates to be performed or update failed."
-        fi
-    else
-        # Create new stack
-        echo "Creating stack $stack_name..."
-        aws cloudformation create-stack \
-            --stack-name "$stack_name" \
-            --template-body "file://$template_file" \
-            --parameters "$parameters" \
-            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --region "$REGION"
-            
-        # Wait for stack creation to complete
-        echo "Waiting for stack creation to complete..."
-        aws cloudformation wait stack-create-complete \
-            --stack-name "$stack_name" \
-            --region "$REGION"
-    fi
-    
-    echo -e "${GREEN}Stack $stack_name deployed successfully!${NC}"
-}
+# 1. Deploy S3 resources
+echo -e "${YELLOW}Deploying S3 resources...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/s3.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-s3" \
+  --parameter-overrides ProjectName=$PROJECT_NAME \
+  --region $REGION
 
-# Deploy S3 resources
-deploy_stack "${STACK_NAME_PREFIX}-s3" "infrastructure/s3.yaml" \
-    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME"
-
-# get the S3 bucket name from the S3 stack
+# Get the S3 bucket name from the S3 stack
 S3_BUCKET_NAME=$(aws cloudformation describe-stacks \
   --stack-name "${STACK_NAME_PREFIX}-s3" \
   --region "$REGION" \
   --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" \
   --output text)
 
-# Deploy DynamoDB resources
-deploy_stack "${STACK_NAME_PREFIX}-dynamodb" "infrastructure/dynamodb.yaml" \
-    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME"
+echo "Website Bucket Name: $S3_BUCKET_NAME"
 
-# Deploy Cognito resources
-deploy_stack "${STACK_NAME_PREFIX}-cognito" "infrastructure/cognito.yaml" \
-    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME \
-    ParameterKey=S3StackName,ParameterValue=${STACK_NAME_PREFIX}-s3 \
-    ParameterKey=WebsiteBucketName,ParameterValue=$S3_BUCKET_NAME"
+# 2. Deploy DynamoDB resources
+echo -e "${YELLOW}Deploying DynamoDB tables...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/dynamodb.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-dynamodb" \
+  --parameter-overrides ProjectName=$PROJECT_NAME \
+  --region $REGION
 
-# Deploy CloudFront resources
-deploy_stack "${STACK_NAME_PREFIX}-cloudfront" "infrastructure/cloudfront.yaml" \
-    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME \
-    ParameterKey=S3StackName,ParameterValue=${STACK_NAME_PREFIX}-s3 \
-    ParameterKey=WebsiteBucketName,ParameterValue=$S3_BUCKET_NAME"
+# 3. Deploy Cognito resources
+echo -e "${YELLOW}Deploying Cognito authentication resources...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/cognito.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-cognito" \
+  --parameter-overrides \
+    ProjectName=$PROJECT_NAME \
+    S3StackName="${STACK_NAME_PREFIX}-s3" \
+    WebsiteBucketName=$S3_BUCKET_NAME \
+  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+  --region $REGION
+
+# Get Cognito resource IDs for future reference
+USER_POOL_ID=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-cognito" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" \
+  --output text)
+
+USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-cognito" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" \
+  --output text)
+
+echo "Cognito User Pool ID: $USER_POOL_ID"
+echo "Cognito User Pool Client ID: $USER_POOL_CLIENT_ID"
+
+# 4. Deploy CloudFront distribution
+echo -e "${YELLOW}Deploying CloudFront distribution...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/cloudfront.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-cloudfront" \
+  --parameter-overrides \
+    ProjectName=$PROJECT_NAME \
+    S3StackName="${STACK_NAME_PREFIX}-s3" \
+    WebsiteBucketName=$S3_BUCKET_NAME \
+  --region $REGION
+
+# Get CloudFront URL
+CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-cloudfront" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='CloudFrontURL'].OutputValue" \
+  --output text)
 
 echo -e "${GREEN}All resources for $PROJECT_NAME have been deployed successfully!${NC}"
+echo -e "Website URL: $CLOUDFRONT_URL"
+echo -e "S3 Website URL: http://$S3_BUCKET_NAME.s3-website-$REGION.amazonaws.com"
