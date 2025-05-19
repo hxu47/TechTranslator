@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'TechTranslator - Lambda Functions'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: TechTranslator
+    Description: Name of the project, used as prefix for resource names
+  S3StackName:
+    Type: String
+    Default: tech-translator-s3
+    Description: Name of the S3 stack
+  DynamoDBStackName:
+    Type: String
+    Default: tech-translator-dynamodb
+    Description: Name of the DynamoDB stack
+  CognitoStackName:
+    Type: String
+    Default: tech-translator-cognito
+    Description: Name of the Cognito stack
+  LambdaCodeBucket:
+    Type: String
+    Description: Bucket containing Lambda code packages
+    Default: tech-translator-lambda-code
+
+Resources:
+  # Lambda code S3 bucket
+  LambdaCodeS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref LambdaCodeBucket
+      VersioningConfiguration:
+        Status: Enabled
+  
+  # Main Lambda function
+  MainLambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaCodeS3Bucket
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-main'
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Runtime: nodejs18.x
+      Timeout: 60
+      MemorySize: 1024
+      Environment:
+        Variables:
+          VECTOR_TABLE: !Sub '${DynamoDBStackName}-vector-storage'
+          KNOWLEDGE_BUCKET: !Sub '${S3StackName}-knowledge-base'
+          CONVERSATION_FUNCTION: !GetAtt ConversationLambdaFunction.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: main.zip
+  
+  # Conversation Lambda function
+  ConversationLambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaCodeS3Bucket
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-conversation'
+      Handler: index.handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Runtime: nodejs18.x
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          CONVERSATION_TABLE: !Sub '${DynamoDBStackName}-conversation-history'
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: conversation.zip
+
+Outputs:
+  LambdaCodeBucketName:
+    Description: Name of the S3 bucket for Lambda code
+    Value: !Ref LambdaCodeS3Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaCodeBucketName'
+  
+  MainLambdaFunctionArn:
+    Description: ARN of the Main Lambda function
+    Value: !GetAtt MainLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-MainLambdaFunctionArn'
+  
+  MainLambdaFunctionName:
+    Description: Name of the Main Lambda function
+    Value: !Ref MainLambdaFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-MainLambdaFunctionName'
+  
+  ConversationLambdaFunctionArn:
+    Description: ARN of the Conversation Lambda function
+    Value: !GetAtt ConversationLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ConversationLambdaFunctionArn'
+  
+  ConversationLambdaFunctionName:
+    Description: Name of the Conversation Lambda function
+    Value: !Ref ConversationLambdaFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-ConversationLambdaFunctionName'

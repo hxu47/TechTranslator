@@ -10,6 +10,7 @@ export AWS_PAGER=""
 PROJECT_NAME="TechTranslator"
 REGION="us-east-1"  # Use the region that's available in your AWS Academy Lab
 STACK_NAME_PREFIX="tech-translator"
+LAMBDA_CODE_BUCKET="tech-translator-lambda-code"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -18,6 +19,10 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${YELLOW}Starting deployment of $PROJECT_NAME infrastructure...${NC}"
+
+# Package Lambda functions
+echo -e "${YELLOW}Packaging Lambda functions...${NC}"
+./package-lambda.sh
 
 # 1. Deploy S3 resources
 echo -e "${YELLOW}Deploying S3 resources...${NC}"
@@ -72,24 +77,21 @@ USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
 echo "Cognito User Pool ID: $USER_POOL_ID"
 echo "Cognito User Pool Client ID: $USER_POOL_CLIENT_ID"
 
-# 4. Deploy CloudFront distribution
-echo -e "${YELLOW}Deploying CloudFront distribution...${NC}"
+# 4. Deploy Lambda functions
+echo -e "${YELLOW}Deploying Lambda functions...${NC}"
 aws cloudformation deploy \
-  --template-file infrastructure/cloudfront.yaml \
-  --stack-name "${STACK_NAME_PREFIX}-cloudfront" \
+  --template-file infrastructure/lambda.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-lambda" \
   --parameter-overrides \
     ProjectName=$PROJECT_NAME \
     S3StackName="${STACK_NAME_PREFIX}-s3" \
-    WebsiteBucketName=$S3_BUCKET_NAME \
+    DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
+    CognitoStackName="${STACK_NAME_PREFIX}-cognito" \
+    LambdaCodeBucket=$LAMBDA_CODE_BUCKET \
+  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --region $REGION
 
-# Get CloudFront URL
-CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME_PREFIX}-cloudfront" \
-  --region "$REGION" \
-  --query "Stacks[0].Outputs[?OutputKey=='CloudFrontURL'].OutputValue" \
-  --output text)
+# CloudFront is skipped due to permission issues in AWS Academy Lab
 
 echo -e "${GREEN}All resources for $PROJECT_NAME have been deployed successfully!${NC}"
-echo -e "Website URL: $CLOUDFRONT_URL"
 echo -e "S3 Website URL: http://$S3_BUCKET_NAME.s3-website-$REGION.amazonaws.com"
