@@ -6,6 +6,13 @@ Parameters:
     Type: String
     Default: TechTranslator
     Description: Name of the project, used as prefix for resource names
+  S3StackName:
+    Type: String
+    Default: tech-translator-s3
+    Description: Name of the S3 stack
+  WebsiteBucketName:
+    Type: String
+    Description: Name of the S3 bucket hosting the website
 
 Resources:
   CloudFrontOriginAccessIdentity:
@@ -43,8 +50,7 @@ Resources:
           TargetOriginId: s3-website-origin
           ViewerProtocolPolicy: redirect-to-https
         Origins:
-          - DomainName: !ImportValue 
-              Fn::Sub: "${AWS::StackName}-s3-WebsiteBucketRegionalDomainName"
+          - DomainName: !Sub "${WebsiteBucketName}.s3.${AWS::Region}.amazonaws.com"
             Id: s3-website-origin
             S3OriginConfig:
               OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
@@ -54,12 +60,11 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  # Lambda function to update the bucket policy - Using an S3 bucket policy update instead
-  UpdateWebsiteBucketPolicy:
+  # Update bucket policy for CloudFront access
+  WebsiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !ImportValue 
-        Fn::Sub: "${AWS::StackName}-s3-WebsiteBucketName"
+      Bucket: !Ref WebsiteBucketName
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -68,7 +73,7 @@ Resources:
             Principal:
               AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentity}'
             Action: 's3:GetObject'
-            Resource: !Sub 'arn:aws:s3:::${ImportValue:${AWS::StackName}-s3-WebsiteBucketName}/*'
+            Resource: !Sub 'arn:aws:s3:::${WebsiteBucketName}/*'
           - Sid: AllowLabRoleAccess
             Effect: Allow
             Principal:
@@ -78,8 +83,8 @@ Resources:
               - s3:PutObject
               - s3:ListBucket
             Resource: 
-              - !Sub 'arn:aws:s3:::${ImportValue:${AWS::StackName}-s3-WebsiteBucketName}'
-              - !Sub 'arn:aws:s3:::${ImportValue:${AWS::StackName}-s3-WebsiteBucketName}/*'
+              - !Sub 'arn:aws:s3:::${WebsiteBucketName}'
+              - !Sub 'arn:aws:s3:::${WebsiteBucketName}/*'
 
 Outputs:
   CloudFrontDistributionId:

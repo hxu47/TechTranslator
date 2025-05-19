@@ -6,6 +6,14 @@ Parameters:
     Type: String
     Default: TechTranslator
     Description: Name of the project, used as prefix for resource names
+  S3StackName:
+    Type: String
+    Default: tech-translator-s3
+    Description: Name of the S3 stack
+  WebsiteBucketName:
+    Type: String
+    Description: Name of the S3 bucket hosting the website
+    Default: ''
 
 Resources:
   # Cognito User Pool
@@ -91,7 +99,11 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub 'arn:aws:s3:::${ImportValue:${AWS::StackName}-s3-WebsiteBucketName}/*'
+                Resource: 
+                  !If 
+                    - HasWebsiteBucketName
+                    - !Sub 'arn:aws:s3:::${WebsiteBucketName}/*'
+                    - !Sub 'arn:aws:s3:::${S3StackName}-website/*'
               - Effect: Allow
                 Action:
                   - execute-api:Invoke
@@ -104,6 +116,9 @@ Resources:
       IdentityPoolId: !Ref IdentityPool
       Roles:
         authenticated: !GetAtt AuthenticatedUserRole.Arn
+
+Conditions:
+  HasWebsiteBucketName: !Not [!Equals [!Ref WebsiteBucketName, '']]
 
 Outputs:
   UserPoolId:

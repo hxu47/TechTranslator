@@ -66,16 +66,27 @@ deploy_stack() {
 deploy_stack "${STACK_NAME_PREFIX}-s3" "infrastructure/s3.yaml" \
     "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME"
 
+# get the S3 bucket name from the S3 stack
+S3_BUCKET_NAME=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-s3" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" \
+  --output text)
+
 # Deploy DynamoDB resources
 deploy_stack "${STACK_NAME_PREFIX}-dynamodb" "infrastructure/dynamodb.yaml" \
     "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME"
 
 # Deploy Cognito resources
 deploy_stack "${STACK_NAME_PREFIX}-cognito" "infrastructure/cognito.yaml" \
-    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME"
+    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME \
+    ParameterKey=S3StackName,ParameterValue=${STACK_NAME_PREFIX}-s3 \
+    ParameterKey=WebsiteBucketName,ParameterValue=$S3_BUCKET_NAME"
 
 # Deploy CloudFront resources
 deploy_stack "${STACK_NAME_PREFIX}-cloudfront" "infrastructure/cloudfront.yaml" \
-    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME"
+    "ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME \
+    ParameterKey=S3StackName,ParameterValue=${STACK_NAME_PREFIX}-s3 \
+    ParameterKey=WebsiteBucketName,ParameterValue=$S3_BUCKET_NAME"
 
 echo -e "${GREEN}All resources for $PROJECT_NAME have been deployed successfully!${NC}"
