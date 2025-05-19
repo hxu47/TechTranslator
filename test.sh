@@ -4,9 +4,9 @@
 set -e  # Exit immediately if a command exits with a non-zero status
 
 # Configuration
-PROJECT_NAME="TestTechTranslator"
+PROJECT_NAME="TechTranslator"
 REGION="us-east-1"  # Use the region that's available in your AWS Academy Lab
-STACK_NAME_PREFIX="test-tech-translator"
+STACK_NAME_PREFIX="tech-translator"
 
 # Deploy S3 resources
 aws cloudformation create-stack \

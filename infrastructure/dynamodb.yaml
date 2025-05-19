@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'TechTranslator - DynamoDB Tables for Vector Storage and Conversation History'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: TechTranslator
+    Description: Name of the project, used as prefix for resource names
+
+Resources:
+  # Vector Storage Table
+  VectorStorageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-vector-storage'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: concept_id
+          AttributeType: S
+        - AttributeName: vector_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: concept_id
+          KeyType: HASH
+        - AttributeName: vector_id
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # Conversation History Table
+  ConversationHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-conversation-history'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: conversation_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+        - AttributeName: conversation_id
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  VectorStorageTableName:
+    Description: Name of the vector storage table
+    Value: !Ref VectorStorageTable
+    Export:
+      Name: !Sub '${AWS::StackName}-VectorStorageTableName'
+  
+  VectorStorageTableArn:
+    Description: ARN of the vector storage table
+    Value: !GetAtt VectorStorageTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-VectorStorageTableArn'
+  
+  ConversationHistoryTableName:
+    Description: Name of the conversation history table
+    Value: !Ref ConversationHistoryTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ConversationHistoryTableName'
+  
+  ConversationHistoryTableArn:
+    Description: ARN of the conversation history table
+    Value: !GetAtt ConversationHistoryTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ConversationHistoryTableArn'
