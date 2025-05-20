@@ -51,6 +51,24 @@ class ApiService {
             // In a real implementation, this would call the API
             // For now, we'll simulate a response
             
+            /* 
+            // Real API implementation would be:
+            const response = await fetch(`${this.apiUrl}/query`, {
+                method: 'POST',
+                headers: this.getHeaders(),
+                body: JSON.stringify({ 
+                    query,
+                    conversation_id: conversationId 
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error('API request failed');
+            }
+            
+            return await response.json();
+            */
+            
             // Simulated API call delay
             await new Promise(resolve => setTimeout(resolve, 1000));
             
@@ -77,24 +95,6 @@ class ApiService {
                           query.toLowerCase().includes('actuary') ? 'actuary' : 
                           query.toLowerCase().includes('executive') ? 'executive' : 'general'
             };
-            
-            /* 
-            // Real API implementation would be:
-            const response = await fetch(`${this.apiUrl}/query`, {
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify({ 
-                    query,
-                    conversation_id: conversationId 
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error('API request failed');
-            }
-            
-            return await response.json();
-            */
         } catch (error) {
             console.error('Error sending query:', error);
             throw error;
@@ -110,6 +110,21 @@ class ApiService {
         try {
             // In a real implementation, this would call the API
             // For now, we'll simulate a response
+            
+            /* 
+            // Real API implementation would be:
+            const queryParams = conversationId ? `?conversation_id=${conversationId}` : '';
+            const response = await fetch(`${this.apiUrl}/conversation${queryParams}`, {
+                method: 'GET',
+                headers: this.getHeaders()
+            });
+            
+            if (!response.ok) {
+                throw new Error('API request failed');
+            }
+            
+            return await response.json();
+            */
             
             // Simulated API call delay
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -133,24 +148,6 @@ class ApiService {
             return { conversations: conversationId ? 
                     conversations.filter(c => c.conversation_id === conversationId) : 
                     conversations };
-            
-            /* 
-            // Real API implementation would be:
-            const url = conversationId ? 
-                `${this.apiUrl}/conversation?id=${conversationId}` : 
-                `${this.apiUrl}/conversation`;
-                
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: this.getHeaders()
-            });
-            
-            if (!response.ok) {
-                throw new Error('API request failed');
-            }
-            
-            return await response.json();
-            */
         } catch (error) {
             console.error('Error getting conversations:', error);
             throw error;

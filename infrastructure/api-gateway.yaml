@@ -14,6 +14,14 @@ Parameters:
     Type: String
     Default: tech-translator-cognito
     Description: Name of the Cognito stack
+  EnableAuthForQuery:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Whether to enable Cognito authentication for the query endpoint
+
+Conditions:
+  UseAuthForQuery: !Equals [!Ref EnableAuthForQuery, "true"]
 
 Resources:
   # API Gateway REST API
@@ -56,39 +64,15 @@ Resources:
       ParentId: !GetAtt TechTranslatorApi.RootResourceId
       PathPart: 'conversation'
 
-  # API Gateway Method for /query POST - with Auth
-  QueryPostMethodWithAuth:
+  # API Gateway Method for /query POST - with or without Auth based on condition
+  QueryPostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref TechTranslatorApi
       ResourceId: !Ref QueryResource
       HttpMethod: POST
-      AuthorizationType: COGNITO_USER_POOLS
-      AuthorizerId: !Ref CognitoAuthorizer
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 
-          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations'
-          - LambdaArn:
-              Fn::ImportValue: !Sub '${LambdaStackName}-MainLambdaFunctionArn'
-      MethodResponses:
-        - StatusCode: '200'
-          ResponseModels:
-            application/json: 'Empty'
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: true
-        - StatusCode: '400'
-        - StatusCode: '500'
-
-  # API Gateway Method for /query POST - without Auth (for testing)
-  QueryPostMethodNoAuth:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref TechTranslatorApi
-      ResourceId: !Ref QueryResource
-      HttpMethod: POST
-      AuthorizationType: NONE
+      AuthorizationType: !If [UseAuthForQuery, "COGNITO_USER_POOLS", "NONE"]
+      AuthorizerId: !If [UseAuthForQuery, !Ref CognitoAuthorizer, !Ref "AWS::NoValue"]
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -188,8 +172,7 @@ Resources:
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
-      - QueryPostMethodWithAuth
-      - QueryPostMethodNoAuth
+      - QueryPostMethod
       - QueryOptionsMethod
       - ConversationGetMethod
       - ConversationOptionsMethod
