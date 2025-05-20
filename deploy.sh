@@ -91,7 +91,27 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --region $REGION
 
-# CloudFront is skipped due to permission issues in AWS Academy Lab
+# 5. Deploy API Gateway
+echo -e "${YELLOW}Deploying API Gateway...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/api-gateway.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-api" \
+  --parameter-overrides \
+    ProjectName=$PROJECT_NAME \
+    LambdaStackName="${STACK_NAME_PREFIX}-lambda" \
+    CognitoStackName="${STACK_NAME_PREFIX}-cognito" \
+  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+  --region $REGION
+
+# Get API Gateway URL
+API_URL=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-api" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
+  --output text)
 
 echo -e "${GREEN}All resources for $PROJECT_NAME have been deployed successfully!${NC}"
 echo -e "S3 Website URL: http://$S3_BUCKET_NAME.s3-website-$REGION.amazonaws.com"
+echo -e "API Gateway URL: $API_URL"
+echo -e "Cognito User Pool ID: $USER_POOL_ID"
+echo -e "Cognito User Pool Client ID: $USER_POOL_CLIENT_ID"

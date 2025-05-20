@@ -32,15 +32,33 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
   
-  # Main Lambda function
-  MainLambdaFunction:
+  # Conversation Lambda function (created first to get its ARN for the Main Lambda)
+  ConversationLambdaFunction:
     Type: AWS::Lambda::Function
     DependsOn: LambdaCodeS3Bucket
     Properties:
-      FunctionName: !Sub '${AWS::StackName}-main'
-      Handler: index.handler
+      FunctionName: !Sub '${AWS::StackName}-conversation'
+      Handler: lambda_function.lambda_handler
       Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
-      Runtime: nodejs18.x
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          CONVERSATION_TABLE: !Sub '${DynamoDBStackName}-conversation-history'
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: conversation.zip
+  
+  # Main Lambda function
+  MainLambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ConversationLambdaFunction
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-main'
+      Handler: lambda_function.lambda_handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
+      Runtime: python3.9
       Timeout: 60
       MemorySize: 1024
       Environment:
@@ -51,24 +69,6 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: main.zip
-  
-  # Conversation Lambda function
-  ConversationLambdaFunction:
-    Type: AWS::Lambda::Function
-    DependsOn: LambdaCodeS3Bucket
-    Properties:
-      FunctionName: !Sub '${AWS::StackName}-conversation'
-      Handler: index.handler
-      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
-      Runtime: nodejs18.x
-      Timeout: 30
-      MemorySize: 512
-      Environment:
-        Variables:
-          CONVERSATION_TABLE: !Sub '${DynamoDBStackName}-conversation-history'
-      Code:
-        S3Bucket: !Ref LambdaCodeBucket
-        S3Key: conversation.zip
 
 Outputs:
   LambdaCodeBucketName:

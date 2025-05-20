@@ -18,9 +18,10 @@ echo -e "${YELLOW}Creating Lambda code bucket...${NC}"
 # Create the bucket if it doesn't exist
 aws s3api create-bucket --bucket $LAMBDA_CODE_BUCKET --region us-east-1 || true
 
-# Function to package a Lambda function
+# Function to package a Python Lambda function
 package_lambda() {
   func_name=$1
+  handler_file=$2
   echo -e "${YELLOW}Packaging $func_name Lambda function...${NC}"
   
   # Save the current directory
@@ -30,11 +31,12 @@ package_lambda() {
   mkdir -p /tmp/lambda-package
   
   # Copy Lambda files to the temporary directory
-  cp -r lambda/$func_name/* /tmp/lambda-package/
+  cp lambda/$func_name/$handler_file /tmp/lambda-package/lambda_function.py
+  cp lambda/$func_name/requirements.txt /tmp/lambda-package/
   
   # Install dependencies
   cd /tmp/lambda-package
-  npm install --production
+  pip install -r requirements.txt -t .
   
   # Zip the package
   zip -r /tmp/$func_name.zip .
@@ -53,7 +55,7 @@ package_lambda() {
 }
 
 # Package Lambda functions
-package_lambda "main"
-package_lambda "conversation"
+package_lambda "main" "lambda_function.py"
+package_lambda "conversation" "lambda_function.py"
 
 echo -e "${GREEN}All Lambda functions packaged and uploaded successfully!${NC}"

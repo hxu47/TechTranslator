@@ -1,0 +1,230 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'TechTranslator - API Gateway'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: TechTranslator
+    Description: Name of the project, used as prefix for resource names
+  LambdaStackName:
+    Type: String
+    Default: tech-translator-lambda
+    Description: Name of the Lambda stack
+  CognitoStackName:
+    Type: String
+    Default: tech-translator-cognito
+    Description: Name of the Cognito stack
+
+Resources:
+  # API Gateway REST API
+  TechTranslatorApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ProjectName}-api'
+      Description: 'API for TechTranslator application'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Authorizer using Cognito
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: !Sub '${ProjectName}-cognito-authorizer'
+      RestApiId: !Ref TechTranslatorApi
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      ProviderARNs:
+        - !Sub 
+          - 'arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}'
+          - UserPoolId: 
+              Fn::ImportValue: !Sub '${CognitoStackName}-UserPoolId'
+
+  # API Gateway Resource for /query endpoint
+  QueryResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      ParentId: !GetAtt TechTranslatorApi.RootResourceId
+      PathPart: 'query'
+
+  # API Gateway Resource for /conversation endpoint
+  ConversationResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      ParentId: !GetAtt TechTranslatorApi.RootResourceId
+      PathPart: 'conversation'
+
+  # API Gateway Method for /query POST - with Auth
+  QueryPostMethodWithAuth:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      ResourceId: !Ref QueryResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations'
+          - LambdaArn:
+              Fn::ImportValue: !Sub '${LambdaStackName}-MainLambdaFunctionArn'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: 'Empty'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: '400'
+        - StatusCode: '500'
+
+  # API Gateway Method for /query POST - without Auth (for testing)
+  QueryPostMethodNoAuth:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      ResourceId: !Ref QueryResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations'
+          - LambdaArn:
+              Fn::ImportValue: !Sub '${LambdaStackName}-MainLambdaFunctionArn'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: 'Empty'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: '400'
+        - StatusCode: '500'
+
+  # API Gateway Method for /query OPTIONS (CORS)
+  QueryOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      ResourceId: !Ref QueryResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: 'Empty'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # API Gateway Method for /conversation GET - with Auth
+  ConversationGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      ResourceId: !Ref ConversationResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations'
+          - LambdaArn:
+              Fn::ImportValue: !Sub '${LambdaStackName}-ConversationLambdaFunctionArn'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: 'Empty'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: '400'
+        - StatusCode: '500'
+
+  # API Gateway Method for /conversation OPTIONS (CORS)
+  ConversationOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      ResourceId: !Ref ConversationResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseModels:
+            application/json: 'Empty'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # API Gateway Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - QueryPostMethodWithAuth
+      - QueryPostMethodNoAuth
+      - QueryOptionsMethod
+      - ConversationGetMethod
+      - ConversationOptionsMethod
+    Properties:
+      RestApiId: !Ref TechTranslatorApi
+      StageName: 'v1'
+
+  # Lambda Permissions for API Gateway
+  MainLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: 
+        Fn::ImportValue: !Sub '${LambdaStackName}-MainLambdaFunctionName'
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TechTranslatorApi}/*'
+
+  ConversationLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: 
+        Fn::ImportValue: !Sub '${LambdaStackName}-ConversationLambdaFunctionName'
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TechTranslatorApi}/*'
+
+Outputs:
+  ApiGatewayUrl:
+    Description: URL of the API Gateway
+    Value: !Sub 'https://${TechTranslatorApi}.execute-api.${AWS::Region}.amazonaws.com/v1'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayUrl'
+
+  ApiGatewayId:
+    Description: ID of the API Gateway
+    Value: !Ref TechTranslatorApi
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayId'
