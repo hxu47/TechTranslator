@@ -20,10 +20,6 @@ NC='\033[0m' # No Color
 
 echo -e "${YELLOW}Starting deployment of $PROJECT_NAME infrastructure...${NC}"
 
-# Package Lambda functions
-echo -e "${YELLOW}Packaging Lambda functions...${NC}"
-./package-lambda.sh
-
 # 1. Deploy S3 resources
 echo -e "${YELLOW}Deploying S3 resources...${NC}"
 aws cloudformation deploy \
@@ -77,7 +73,24 @@ USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
 echo "Cognito User Pool ID: $USER_POOL_ID"
 echo "Cognito User Pool Client ID: $USER_POOL_CLIENT_ID"
 
-# 4. Deploy Lambda functions
+# 4. Create/check Lambda code bucket and upload Lambda code
+echo -e "${YELLOW}Setting up Lambda code bucket and uploading Lambda functions...${NC}"
+
+# Check if the bucket exists
+if aws s3api head-bucket --bucket $LAMBDA_CODE_BUCKET 2>/dev/null; then
+  echo "Lambda code bucket already exists: $LAMBDA_CODE_BUCKET"
+  CREATE_CODE_BUCKET="false"
+else
+  echo "Creating Lambda code bucket: $LAMBDA_CODE_BUCKET"
+  aws s3api create-bucket --bucket $LAMBDA_CODE_BUCKET --region $REGION
+  CREATE_CODE_BUCKET="false"  # Set to false since we created it manually
+fi
+
+# Package and upload Lambda code
+echo -e "${YELLOW}Packaging Lambda functions...${NC}"
+./package-lambda.sh
+
+# 5. Deploy Lambda functions
 echo -e "${YELLOW}Deploying Lambda functions...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/lambda.yaml \
@@ -88,10 +101,11 @@ aws cloudformation deploy \
     DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
     CognitoStackName="${STACK_NAME_PREFIX}-cognito" \
     LambdaCodeBucket=$LAMBDA_CODE_BUCKET \
+    CreateCodeBucket=$CREATE_CODE_BUCKET \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --region $REGION
 
-# 5. Deploy API Gateway
+# 6. Deploy API Gateway
 echo -e "${YELLOW}Deploying API Gateway...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/api-gateway.yaml \

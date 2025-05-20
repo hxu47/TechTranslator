@@ -24,18 +24,9 @@ Parameters:
     Default: tech-translator-lambda-code
 
 Resources:
-  # Lambda code S3 bucket
-  LambdaCodeS3Bucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref LambdaCodeBucket
-      VersioningConfiguration:
-        Status: Enabled
-  
-  # Conversation Lambda function (created first to get its ARN for the Main Lambda)
+  # Conversation Lambda function
   ConversationLambdaFunction:
     Type: AWS::Lambda::Function
-    DependsOn: LambdaCodeS3Bucket
     Properties:
       FunctionName: !Sub '${AWS::StackName}-conversation'
       Handler: lambda_function.lambda_handler
@@ -73,7 +64,7 @@ Resources:
 Outputs:
   LambdaCodeBucketName:
     Description: Name of the S3 bucket for Lambda code
-    Value: !Ref LambdaCodeS3Bucket
+    Value: !Ref LambdaCodeBucket
     Export:
       Name: !Sub '${AWS::StackName}-LambdaCodeBucketName'
   
