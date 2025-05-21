@@ -2,9 +2,12 @@ import json
 import boto3
 import os
 import uuid
-import numpy as np
 from sentence_transformers import SentenceTransformer
-import torch
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # This script generates embeddings for knowledge base documents and stores them in DynamoDB
 # Run this script in your AWS environment after creating the knowledge base
@@ -67,7 +70,7 @@ def load_concepts(bucket_name):
             obj_response = s3.get_object(Bucket=bucket_name, Key=key)
             concept = json.loads(obj_response['Body'].read().decode('utf-8'))
             concepts.append(concept)
-            print(f"Loaded concept: {concept['title']}")
+            logger.info(f"Loaded concept: {concept['title']}")
     
     return concepts
 
@@ -133,13 +136,13 @@ def generate_chunks(concept):
 
 # Generate embeddings for chunks using Sentence Transformers
 def generate_embeddings(chunks):
-    print("Loading sentence transformer model...")
+    logger.info("Loading sentence transformer model...")
     model = SentenceTransformer('all-MiniLM-L6-v2')  # Small model suitable for Lambda environments
     
     # Generate embeddings for each chunk
     for chunk in chunks:
         text = chunk["text"]
-        print(f"Generating embedding for {chunk['vector_id']}...")
+        logger.info(f"Generating embedding for {chunk['vector_id']}...")
         
         # Generate embedding
         embedding = model.encode(text)
@@ -172,25 +175,25 @@ def store_embeddings(chunks, table_name):
         
         # Store in DynamoDB
         table.put_item(Item=item)
-        print(f"Stored embedding for {chunk['vector_id']} in DynamoDB")
+        logger.info(f"Stored embedding for {chunk['vector_id']} in DynamoDB")
 
 def main():
-    print("Starting embedding generation process...")
+    logger.info("Starting embedding generation process...")
     
     # Get resource names
     bucket_name, table_name = get_resources()
-    print(f"Using bucket: {bucket_name} and table: {table_name}")
+    logger.info(f"Using bucket: {bucket_name} and table: {table_name}")
     
     # Load concepts
     concepts = load_concepts(bucket_name)
-    print(f"Loaded {len(concepts)} concepts")
+    logger.info(f"Loaded {len(concepts)} concepts")
     
     # Generate chunks
     all_chunks = []
     for concept in concepts:
         chunks = generate_chunks(concept)
         all_chunks.extend(chunks)
-    print(f"Generated {len(all_chunks)} chunks")
+    logger.info(f"Generated {len(all_chunks)} chunks")
     
     # Generate embeddings
     embedded_chunks = generate_embeddings(all_chunks)
@@ -198,7 +201,7 @@ def main():
     # Store embeddings in DynamoDB
     store_embeddings(embedded_chunks, table_name)
     
-    print("Embedding generation completed!")
+    logger.info("Embedding generation completed!")
 
 if __name__ == "__main__":
     main()
