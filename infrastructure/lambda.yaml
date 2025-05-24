@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'TechTranslator - Lambda Functions'
+Description: 'TechTranslator - Lambda Functions with SageMaker Integration'
 
 Parameters:
   ProjectName:
@@ -22,6 +22,10 @@ Parameters:
     Type: String
     Description: Bucket containing Lambda code packages
     Default: tech-translator-lambda-code
+  SageMakerEndpointName:
+    Type: String
+    Description: Name of your deployed SageMaker endpoint
+    Default: ""
 
 Resources:
   # Conversation Lambda function
@@ -40,6 +44,9 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: conversation.zip
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
   
   # Main Lambda function
   MainLambdaFunction:
@@ -50,16 +57,20 @@ Resources:
       Handler: lambda_function.lambda_handler
       Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole'
       Runtime: python3.9
-      Timeout: 60
-      MemorySize: 1024
+      Timeout: 120  # Increased for SageMaker calls and model loading
+      MemorySize: 1024  # Increased for sentence transformer model
       Environment:
         Variables:
           VECTOR_TABLE: !Sub '${DynamoDBStackName}-vector-storage'
           KNOWLEDGE_BUCKET: !Sub '${S3StackName}-knowledge-base'
           CONVERSATION_FUNCTION: !GetAtt ConversationLambdaFunction.Arn
+          SAGEMAKER_ENDPOINT: !Ref SageMakerEndpointName
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: main.zip
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
 
 Outputs:
   LambdaCodeBucketName:
@@ -91,3 +102,9 @@ Outputs:
     Value: !Ref ConversationLambdaFunction
     Export:
       Name: !Sub '${AWS::StackName}-ConversationLambdaFunctionName'
+      
+  SageMakerEndpointName:
+    Description: Name of the SageMaker endpoint being used
+    Value: !Ref SageMakerEndpointName
+    Export:
+      Name: !Sub '${AWS::StackName}-SageMakerEndpointName'

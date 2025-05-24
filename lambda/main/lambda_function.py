@@ -4,6 +4,9 @@ import os
 import uuid
 from datetime import datetime
 import logging
+from sentence_transformers import SentenceTransformer
+from scipy.spatial.distance import cosine
+import numpy as np
 
 # Configure logging
 logger = logging.getLogger()
@@ -13,11 +16,25 @@ logger.setLevel(logging.INFO)
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
 lambda_client = boto3.client('lambda')
+sagemaker_runtime = boto3.client('sagemaker-runtime')
 
 # Get environment variables
 VECTOR_TABLE = os.environ.get('VECTOR_TABLE')
 KNOWLEDGE_BUCKET = os.environ.get('KNOWLEDGE_BUCKET')
 CONVERSATION_FUNCTION = os.environ.get('CONVERSATION_FUNCTION')
+SAGEMAKER_ENDPOINT = os.environ.get('SAGEMAKER_ENDPOINT')
+
+# Initialize sentence transformer model (lazy loading for cold start optimization)
+model = None
+
+def get_model():
+    """Lazy load the sentence transformer model"""
+    global model
+    if model is None:
+        logger.info("Loading sentence transformer model...")
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("Model loaded successfully")
+    return model
 
 def lambda_handler(event, context):
     """
@@ -46,24 +63,31 @@ def lambda_handler(event, context):
         
         logger.info(f"Processing query: {query} for user: {user_id}")
         
+        # Check if SageMaker endpoint is configured
+        if not SAGEMAKER_ENDPOINT:
+            logger.error("SAGEMAKER_ENDPOINT environment variable not set")
+            return {
+                'statusCode': 500,
+                'headers': CORS_HEADERS,
+                'body': json.dumps({'error': 'SageMaker endpoint not configured'})
+            }
+        
         # Step 1: Extract concept and audience from query using prompt engineering
-        # (In a real implementation, this would call an LLM API)
         concept_and_audience = extract_concept_and_audience(query)
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
         
         logger.info(f"Extracted concept: {concept}, audience: {audience}")
         
-        # Step 2: Retrieve relevant information from knowledge base
-        relevant_info = retrieve_information(concept)
+        # Step 2: Retrieve relevant information using RAG
+        relevant_chunks = vector_search(query, concept)
         
-        logger.info(f"Retrieved information for {concept}")
+        logger.info(f"Retrieved {len(relevant_chunks)} relevant chunks")
         
-        # Step 3: Generate the response
-        # (In a real implementation, this would call an LLM API with retrieved context)
-        response = generate_response(query, concept_and_audience, relevant_info)
+        # Step 3: Generate the response using SageMaker
+        response = generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks)
         
-        logger.info("Generated response")
+        logger.info("Generated response using SageMaker")
         
         # Step 4: Store conversation
         if not conversation_id:
@@ -90,7 +114,7 @@ def lambda_handler(event, context):
         return {
             'statusCode': 500,
             'headers': CORS_HEADERS,
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({'error': f'Internal server error: {str(e)}'})
         }
 
 # CORS headers for API Gateway integration
@@ -102,116 +126,219 @@ CORS_HEADERS = {
 }
 
 def extract_concept_and_audience(query):
-    """
-    Mock function to extract concept and audience from query
-    In a real implementation, this would use prompt engineering with an LLM
-    """
-    # Simple extraction based on query text
-    # In a real implementation, this would use an LLM for more sophisticated extraction
-    lower_query = query.lower()
+    """Extract concept and audience from user query"""
+    query_lower = query.lower()
     
-    concept = 'data science'
-    if 'r-squared' in lower_query:
-        concept = 'r-squared'
-    elif 'loss ratio' in lower_query:
-        concept = 'loss ratio'
-    elif 'model' in lower_query:
-        concept = 'predictive model'
-    
-    audience = 'general'
-    if 'underwriter' in lower_query:
-        audience = 'underwriter'
-    elif 'actuary' in lower_query:
-        audience = 'actuary'
-    elif 'ceo' in lower_query or 'executive' in lower_query:
-        audience = 'executive'
-    
-    return {'concept': concept, 'audience': audience}
-
-def retrieve_information(concept):
-    """
-    Function to retrieve relevant information from knowledge base
-    In a real implementation, this would use vector search and RAG techniques
-    """
-    # Mock implementation - in a real system, this would retrieve from S3 and vector DB
-    knowledge_base = {
-        'r-squared': {
-            'definition': 'R-squared is a statistical measure that represents the proportion of the variance for a dependent variable that\'s explained by an independent variable.',
-            'insurance_context': 'In insurance pricing, R-squared helps actuaries understand how well factors like age, location, or claim history explain premium variations.',
-            'examples': {
-                'underwriter': 'If your pricing model has an R-squared of 0.75, it means that 75% of the premium variation is explained by the factors in your model.',
-                'executive': 'An R-squared of 0.8 means our pricing model captures 80% of what drives premium differences, indicating a strong predictive model.',
-                'actuary': 'When comparing GLMs for pricing, the model with higher R-squared (all else being equal) is explaining more of the variance in loss ratios across segments.'
-            }
-        },
-        'loss ratio': {
-            'definition': 'Loss ratio is the ratio of total losses paid out in claims plus adjustment expenses divided by the total earned premiums.',
-            'insurance_context': 'It\'s a key metric to evaluate the profitability of an insurance product or line of business.',
-            'examples': {
-                'underwriter': 'If you're seeing a loss ratio of 85% in a particular segment, you may need to consider rate adjustments or tighter underwriting guidelines.',
-                'executive': 'A loss ratio trend that increases from 60% to 70% over three quarters may signal emerging profitability challenges that require attention.',
-                'actuary': 'When modeling loss ratios, we need to consider both frequency and severity trends, as well as large claim volatility and development patterns.'
-            }
-        },
-        'predictive model': {
-            'definition': 'A predictive model is a statistical algorithm that uses historical data to predict future outcomes.',
-            'insurance_context': 'In insurance, predictive models help estimate the likelihood of claims, premium adequacy, and customer behavior.',
-            'examples': {
-                'underwriter': 'The predictive model flagged this application with a high-risk score based on its similarity to previous policies that had high claim frequencies.',
-                'executive': 'Our new customer retention predictive model has improved retention by 5% by identifying at-risk policies before renewal.',
-                'actuary': 'This predictive model uses generalized linear modeling techniques with a logarithmic link function to handle the skewed distribution of claim amounts.'
-            }
-        },
-        'data science': {
-            'definition': 'Data science is an interdisciplinary field that uses scientific methods, processes, algorithms and systems to extract knowledge from data.',
-            'insurance_context': 'In insurance, data science combines statistical modeling, machine learning, and domain expertise to improve pricing, underwriting, and claims handling.',
-            'examples': {
-                'underwriter': 'Data science tools help you identify patterns in applications that might indicate higher risk but wouldn't be obvious from traditional underwriting guidelines.',
-                'executive': 'Our data science initiatives reduced claims leakage by 12% last year by identifying patterns of potentially fraudulent claims.',
-                'actuary': 'We're using data science techniques like natural language processing to extract insights from adjuster notes and improve our reserving models.'
-            }
-        }
+    # Concept mapping
+    concept_keywords = {
+        'r-squared': ['r squared', 'r-squared', 'r2', 'coefficient of determination'],
+        'loss-ratio': ['loss ratio', 'claims ratio', 'incurred losses'],
+        'predictive-model': ['predictive model', 'prediction model', 'machine learning', 'ml model']
     }
     
-    return knowledge_base.get(concept, {
-        'definition': 'General data science concept',
-        'insurance_context': 'Data science is widely used in insurance',
-        'examples': {
-            'underwriter': 'Data science helps underwriters assess risk',
-            'executive': 'Data science improves business outcomes',
-            'actuary': 'Data science enhances actuarial modeling',
-            'general': 'Data science is used to analyze patterns in data'
-        }
-    })
+    detected_concept = None
+    for concept_id, keywords in concept_keywords.items():
+        if any(keyword in query_lower for keyword in keywords):
+            detected_concept = concept_id
+            break
+    
+    if not detected_concept:
+        detected_concept = 'predictive-model'  # Default
+    
+    # Audience mapping
+    audience_keywords = {
+        'underwriter': ['underwriter', 'underwriting'],
+        'actuary': ['actuary', 'actuarial', 'actuaries'],
+        'executive': ['executive', 'ceo', 'manager', 'leadership']
+    }
+    
+    detected_audience = None
+    for audience_id, keywords in audience_keywords.items():
+        if any(keyword in query_lower for keyword in keywords):
+            detected_audience = audience_id
+            break
+    
+    if not detected_audience:
+        detected_audience = 'general'
+    
+    return {'concept': detected_concept, 'audience': detected_audience}
 
-def generate_response(query, concept_and_audience, relevant_info):
-    """
-    Function to generate a response based on the query, concept, audience, and retrieved information
-    In a real implementation, this would use prompt engineering with an LLM
-    """
-    concept = concept_and_audience['concept']
+def vector_search(query, concept_id=None, top_k=5):
+    """Perform vector search on stored embeddings"""
+    try:
+        # Get the model
+        embedding_model = get_model()
+        
+        # Generate query embedding
+        query_embedding = embedding_model.encode(query)
+        
+        # Query DynamoDB
+        table = dynamodb.Table(VECTOR_TABLE)
+        
+        if concept_id:
+            logger.info(f"Searching in concept: {concept_id}")
+            response = table.query(
+                KeyConditionExpression="concept_id = :concept_id",
+                ExpressionAttributeValues={":concept_id": concept_id}
+            )
+        else:
+            logger.info("Searching across all concepts")
+            response = table.scan()
+        
+        items = response.get('Items', [])
+        logger.info(f"Found {len(items)} items to search")
+        
+        if not items:
+            return []
+        
+        # Calculate similarities
+        results = []
+        for item in items:
+            try:
+                # Parse stored embedding
+                stored_embedding = json.loads(item['embedding'])
+                
+                # Calculate cosine similarity
+                similarity = 1 - cosine(query_embedding, stored_embedding)
+                
+                results.append({
+                    'item': item,
+                    'similarity': similarity
+                })
+            except Exception as e:
+                logger.warning(f"Error processing item {item.get('vector_id', 'unknown')}: {str(e)}")
+                continue
+        
+        # Sort by similarity (highest first)
+        results.sort(key=lambda x: x['similarity'], reverse=True)
+        
+        return results[:top_k]
+        
+    except Exception as e:
+        logger.error(f"Vector search error: {str(e)}")
+        return []
+
+def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks):
+    """Generate response using SageMaker FLAN-T5 endpoint"""
+    try:
+        concept = concept_and_audience['concept']
+        audience = concept_and_audience['audience']
+        
+        # Create context from relevant chunks
+        context_text = ""
+        for chunk in relevant_chunks[:3]:  # Use top 3 chunks
+            context_text += f"- {chunk['item']['text'][:200]}...\n"
+        
+        # Create instruction-style prompt for FLAN-T5
+        if context_text.strip():
+            prompt = f"""Based on the following information, explain {concept.replace('-', ' ')} to an insurance {audience}.
+
+Context:
+{context_text}
+
+Question: {query}
+
+Provide a clear, professional explanation for an insurance {audience}:"""
+        else:
+            # Fallback prompt if no context found
+            prompt = f"""Explain {concept.replace('-', ' ')} to an insurance {audience}.
+
+Question: {query}
+
+Provide a clear, professional explanation:"""
+        
+        # Prepare payload for SageMaker
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 150,
+                "temperature": 0.7,
+                "do_sample": True,
+                "top_p": 0.9,
+                "repetition_penalty": 1.1,
+            }
+        }
+        
+        logger.info(f"Calling SageMaker endpoint: {SAGEMAKER_ENDPOINT}")
+        
+        # Call SageMaker endpoint
+        response = sagemaker_runtime.invoke_endpoint(
+            EndpointName=SAGEMAKER_ENDPOINT,
+            ContentType='application/json',
+            Body=json.dumps(payload)
+        )
+        
+        result = json.loads(response['Body'].read().decode())
+        
+        # Handle FLAN-T5 response format
+        if isinstance(result, list) and len(result) > 0:
+            if isinstance(result[0], dict):
+                generated_text = result[0].get('generated_text', '')
+            else:
+                generated_text = str(result[0])
+        elif isinstance(result, dict):
+            generated_text = result.get('generated_text', '')
+        else:
+            generated_text = str(result)
+        
+        # Clean up the response
+        generated_text = generated_text.strip()
+        
+        # Fallback if response is too short or empty
+        if not generated_text or len(generated_text) < 20:
+            logger.warning("SageMaker response too short, using fallback")
+            return create_fallback_response(concept_and_audience, relevant_chunks)
+        
+        return generated_text
+        
+    except Exception as e:
+        logger.error(f"SageMaker generation error: {str(e)}")
+        # Return fallback response
+        return create_fallback_response(concept_and_audience, relevant_chunks)
+
+def create_fallback_response(concept_and_audience, relevant_chunks):
+    """Create a structured fallback response using retrieved context"""
+    concept = concept_and_audience['concept'].replace('-', ' ').title()
     audience = concept_and_audience['audience']
     
-    # In a real implementation, this would use an LLM API call with a carefully crafted prompt
-    # For this implementation, we'll create a template-based response
+    if not relevant_chunks:
+        return f"I'd be happy to explain {concept} for insurance {audience}s, but I couldn't find specific information in my knowledge base. Please try rephrasing your question or contact your data science team for more details."
     
-    audience_specific = relevant_info.get('examples', {}).get(audience, 
-                                           relevant_info.get('examples', {}).get('general', ''))
+    # Use the best matching chunk
+    best_chunk = relevant_chunks[0]['item']
     
-    response = f"""
-{relevant_info.get('definition', '')}
-
-In the insurance industry: {relevant_info.get('insurance_context', '')}
-
-Specifically for {audience}s: {audience_specific}
-    """
+    response = f"**{concept} for Insurance {audience.title()}s**\n\n"
     
-    return response.strip()
+    # Add the most relevant information
+    if best_chunk.get('audience') == audience:
+        # Perfect match for audience
+        response += best_chunk['text']
+    else:
+        # Find definition and context
+        definition = None
+        context = None
+        audience_explanation = None
+        
+        for chunk in relevant_chunks:
+            item = chunk['item']
+            if item['type'] == 'definition' and not definition:
+                definition = item['text']
+            elif item['type'] == 'context' and not context:
+                context = item['text']
+            elif item.get('audience') == audience and not audience_explanation:
+                audience_explanation = item['text']
+        
+        if definition:
+            response += f"{definition}\n\n"
+        if context:
+            response += f"In insurance: {context}\n\n"
+        if audience_explanation:
+            response += f"For {audience}s specifically: {audience_explanation}"
+    
+    return response
 
 def store_conversation(user_id, conversation_id, query, response, concept, audience):
-    """
-    Function to store conversation in DynamoDB via the Conversation Lambda
-    """
+    """Store conversation in DynamoDB via the Conversation Lambda"""
     try:
         payload = {
             'action': 'store',
@@ -231,5 +358,6 @@ def store_conversation(user_id, conversation_id, query, response, concept, audie
         
         return json.loads(response['Payload'].read())
     except Exception as e:
-        logger.error(f"Error storing conversation: {str(e)}", exc_info=True)
-        raise e
+        logger.error(f"Error storing conversation: {str(e)}")
+        # Don't fail the main request if conversation storage fails
+        return None
