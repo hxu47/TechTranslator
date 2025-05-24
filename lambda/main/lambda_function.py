@@ -4,15 +4,12 @@ import os
 import uuid
 from datetime import datetime
 import logging
-from sentence_transformers import SentenceTransformer
-from scipy.spatial.distance import cosine
-import numpy as np
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize AWS clients
+# Initialize AWS clients  
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
 lambda_client = boto3.client('lambda')
@@ -24,23 +21,9 @@ KNOWLEDGE_BUCKET = os.environ.get('KNOWLEDGE_BUCKET')
 CONVERSATION_FUNCTION = os.environ.get('CONVERSATION_FUNCTION')
 SAGEMAKER_ENDPOINT = os.environ.get('SAGEMAKER_ENDPOINT')
 
-# Initialize sentence transformer model (lazy loading for cold start optimization)
-model = None
-
-def get_model():
-    """Lazy load the sentence transformer model"""
-    global model
-    if model is None:
-        logger.info("Loading sentence transformer model...")
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-        logger.info("Model loaded successfully")
-    return model
 
 def lambda_handler(event, context):
-    """
-    Main Lambda function for the TechTranslator application
-    Handles prompt engineering, context retrieval, and response generation
-    """
+    """Main Lambda function - simplified without vector search"""
     try:
         logger.info(f"Received event: {json.dumps(event)}")
         
@@ -61,33 +44,16 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Query is required'})
             }
         
-        logger.info(f"Processing query: {query} for user: {user_id}")
-        
-        # Check if SageMaker endpoint is configured
-        if not SAGEMAKER_ENDPOINT:
-            logger.error("SAGEMAKER_ENDPOINT environment variable not set")
-            return {
-                'statusCode': 500,
-                'headers': CORS_HEADERS,
-                'body': json.dumps({'error': 'SageMaker endpoint not configured'})
-            }
-        
-        # Step 1: Extract concept and audience from query using prompt engineering
+        # Step 1: Extract concept and audience
         concept_and_audience = extract_concept_and_audience(query)
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
         
-        logger.info(f"Extracted concept: {concept}, audience: {audience}")
+        # Step 2: Get relevant context from DynamoDB (without vector search)
+        relevant_chunks = get_relevant_context(concept, audience)
         
-        # Step 2: Retrieve relevant information using RAG
-        relevant_chunks = vector_search(query, concept)
-        
-        logger.info(f"Retrieved {len(relevant_chunks)} relevant chunks")
-        
-        # Step 3: Generate the response using SageMaker
+        # Step 3: Generate response using SageMaker
         response = generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks)
-        
-        logger.info("Generated response using SageMaker")
         
         # Step 4: Store conversation
         if not conversation_id:
@@ -95,9 +61,6 @@ def lambda_handler(event, context):
         
         store_conversation(user_id, conversation_id, query, response, concept, audience)
         
-        logger.info(f"Stored conversation: {conversation_id}")
-        
-        # Return the response
         return {
             'statusCode': 200,
             'headers': CORS_HEADERS,
@@ -163,59 +126,32 @@ def extract_concept_and_audience(query):
     
     return {'concept': detected_concept, 'audience': detected_audience}
 
-def vector_search(query, concept_id=None, top_k=5):
-    """Perform vector search on stored embeddings"""
+def get_relevant_context(concept, audience, max_items=5):
+    """Get relevant context from DynamoDB without vector search"""
     try:
-        # Get the model
-        embedding_model = get_model()
-        
-        # Generate query embedding
-        query_embedding = embedding_model.encode(query)
-        
-        # Query DynamoDB
         table = dynamodb.Table(VECTOR_TABLE)
         
-        if concept_id:
-            logger.info(f"Searching in concept: {concept_id}")
-            response = table.query(
-                KeyConditionExpression="concept_id = :concept_id",
-                ExpressionAttributeValues={":concept_id": concept_id}
-            )
-        else:
-            logger.info("Searching across all concepts")
-            response = table.scan()
+        # Query by concept_id (much simpler than vector search)
+        response = table.query(
+            KeyConditionExpression="concept_id = :concept_id",
+            ExpressionAttributeValues={":concept_id": concept},
+            Limit=max_items
+        )
         
         items = response.get('Items', [])
-        logger.info(f"Found {len(items)} items to search")
         
-        if not items:
-            return []
+        # Prioritize audience-specific content
+        audience_items = [item for item in items if item.get('audience') == audience]
+        other_items = [item for item in items if item.get('audience') != audience]
         
-        # Calculate similarities
-        results = []
-        for item in items:
-            try:
-                # Parse stored embedding
-                stored_embedding = json.loads(item['embedding'])
-                
-                # Calculate cosine similarity
-                similarity = 1 - cosine(query_embedding, stored_embedding)
-                
-                results.append({
-                    'item': item,
-                    'similarity': similarity
-                })
-            except Exception as e:
-                logger.warning(f"Error processing item {item.get('vector_id', 'unknown')}: {str(e)}")
-                continue
+        # Return audience-specific first, then others
+        prioritized_items = audience_items + other_items
         
-        # Sort by similarity (highest first)
-        results.sort(key=lambda x: x['similarity'], reverse=True)
-        
-        return results[:top_k]
+        # Convert to the format expected by generate_response_with_sagemaker
+        return [{'item': item, 'similarity': 1.0} for item in prioritized_items[:max_items]]
         
     except Exception as e:
-        logger.error(f"Vector search error: {str(e)}")
+        logger.error(f"Error getting context: {str(e)}")
         return []
 
 def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks):
