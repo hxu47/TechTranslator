@@ -21,7 +21,6 @@ KNOWLEDGE_BUCKET = os.environ.get('KNOWLEDGE_BUCKET')
 CONVERSATION_FUNCTION = os.environ.get('CONVERSATION_FUNCTION')
 SAGEMAKER_ENDPOINT = os.environ.get('SAGEMAKER_ENDPOINT')
 
-
 def lambda_handler(event, context):
     """Main Lambda function - simplified without vector search"""
     try:
@@ -154,6 +153,7 @@ def get_relevant_context(concept, audience, max_items=5):
         logger.error(f"Error getting context: {str(e)}")
         return []
 
+        
 def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks):
     """Generate response using SageMaker FLAN-T5 endpoint"""
     try:
