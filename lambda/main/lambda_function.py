@@ -21,6 +21,14 @@ KNOWLEDGE_BUCKET = os.environ.get('KNOWLEDGE_BUCKET')
 CONVERSATION_FUNCTION = os.environ.get('CONVERSATION_FUNCTION')
 SAGEMAKER_ENDPOINT = os.environ.get('SAGEMAKER_ENDPOINT')
 
+# CORS headers for API Gateway integration
+CORS_HEADERS = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
+}
+
 def lambda_handler(event, context):
     """Main Lambda function - simplified without vector search"""
     try:
@@ -43,22 +51,46 @@ def lambda_handler(event, context):
                 'body': json.dumps({'error': 'Query is required'})
             }
         
+        logger.info(f"Processing query: {query} for user: {user_id}")
+        
         # Step 1: Extract concept and audience
         concept_and_audience = extract_concept_and_audience(query)
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
         
+        logger.info(f"Extracted concept: {concept}, audience: {audience}")
+        
+        # Check if SageMaker endpoint is configured
+        if not SAGEMAKER_ENDPOINT or SAGEMAKER_ENDPOINT in ['', 'NOT_CONFIGURED', 'PLACEHOLDER']:
+            logger.error("SageMaker endpoint not configured")
+            return {
+                'statusCode': 503,  # Service Unavailable
+                'headers': CORS_HEADERS,
+                'body': json.dumps({
+                    'error': 'AI service temporarily unavailable',
+                    'message': 'SageMaker endpoint not configured. Please deploy the model first.',
+                    'concept': concept,
+                    'audience': audience
+                })
+            }
+        
         # Step 2: Get relevant context from DynamoDB (without vector search)
         relevant_chunks = get_relevant_context(concept, audience)
         
+        logger.info(f"Retrieved {len(relevant_chunks)} relevant chunks")
+        
         # Step 3: Generate response using SageMaker
         response = generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks)
+        
+        logger.info("Generated response using SageMaker")
         
         # Step 4: Store conversation
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
         
         store_conversation(user_id, conversation_id, query, response, concept, audience)
+        
+        logger.info(f"Stored conversation: {conversation_id}")
         
         return {
             'statusCode': 200,
@@ -78,14 +110,6 @@ def lambda_handler(event, context):
             'headers': CORS_HEADERS,
             'body': json.dumps({'error': f'Internal server error: {str(e)}'})
         }
-
-# CORS headers for API Gateway integration
-CORS_HEADERS = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
-    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
-}
 
 def extract_concept_and_audience(query):
     """Extract concept and audience from user query"""
@@ -153,7 +177,6 @@ def get_relevant_context(concept, audience, max_items=5):
         logger.error(f"Error getting context: {str(e)}")
         return []
 
-        
 def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks):
     """Generate response using SageMaker FLAN-T5 endpoint"""
     try:
@@ -220,7 +243,7 @@ Provide a clear, professional explanation:"""
         # Clean up the response
         generated_text = generated_text.strip()
         
-        # Fallback if response is too short or empty
+        # Fallback if response is too short
         if not generated_text or len(generated_text) < 20:
             logger.warning("SageMaker response too short, using fallback")
             return create_fallback_response(concept_and_audience, relevant_chunks)
@@ -238,7 +261,7 @@ def create_fallback_response(concept_and_audience, relevant_chunks):
     audience = concept_and_audience['audience']
     
     if not relevant_chunks:
-        return f"I'd be happy to explain {concept} for insurance {audience}s, but I couldn't find specific information in my knowledge base. Please try rephrasing your question or contact your data science team for more details."
+        return f"I would be happy to explain {concept} for insurance {audience}s, but I could not find specific information in my knowledge base. Please try rephrasing your question."
     
     # Use the best matching chunk
     best_chunk = relevant_chunks[0]['item']
@@ -250,26 +273,8 @@ def create_fallback_response(concept_and_audience, relevant_chunks):
         # Perfect match for audience
         response += best_chunk['text']
     else:
-        # Find definition and context
-        definition = None
-        context = None
-        audience_explanation = None
-        
-        for chunk in relevant_chunks:
-            item = chunk['item']
-            if item['type'] == 'definition' and not definition:
-                definition = item['text']
-            elif item['type'] == 'context' and not context:
-                context = item['text']
-            elif item.get('audience') == audience and not audience_explanation:
-                audience_explanation = item['text']
-        
-        if definition:
-            response += f"{definition}\n\n"
-        if context:
-            response += f"In insurance: {context}\n\n"
-        if audience_explanation:
-            response += f"For {audience}s specifically: {audience_explanation}"
+        # Use available information
+        response += best_chunk.get('text', 'Information not available')
     
     return response
 
