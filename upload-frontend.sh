@@ -57,6 +57,7 @@ cp frontend/src/css/styles.css $TEMP_DIR/src/css/
 cp frontend/src/js/*.js $TEMP_DIR/src/js/
 
 # Replace placeholder values in JavaScript files
+# Use different delimiter for sed to avoid issues with URLs containing slashes
 sed -i.bak "s|YOUR_API_GATEWAY_URL|$API_URL|g" $TEMP_DIR/src/js/api.js
 sed -i.bak "s|YOUR_USER_POOL_ID|$USER_POOL_ID|g" $TEMP_DIR/src/js/auth.js
 sed -i.bak "s|YOUR_CLIENT_ID|$USER_POOL_CLIENT_ID|g" $TEMP_DIR/src/js/auth.js
@@ -73,3 +74,21 @@ rm -rf $TEMP_DIR
 
 echo -e "${GREEN}Frontend uploaded successfully!${NC}"
 echo -e "Website URL: http://$S3_BUCKET_NAME.s3-website-$REGION.amazonaws.com"
+
+# Display current SageMaker endpoint status
+echo -e "${YELLOW}Checking SageMaker endpoint configuration...${NC}"
+SAGEMAKER_ENDPOINT=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-lambda" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='CurrentSageMakerEndpoint'].OutputValue" \
+  --output text 2>/dev/null || echo "NOT_FOUND")
+
+if [ "$SAGEMAKER_ENDPOINT" = "NOT_FOUND" ] || [ "$SAGEMAKER_ENDPOINT" = "NOT_CONFIGURED" ]; then
+  echo -e "${YELLOW}⚠️  WARNING: SageMaker endpoint is not configured!${NC}"
+  echo -e "To make the app fully functional, you need to:"
+  echo -e "1. Deploy a SageMaker endpoint using the notebook"
+  echo -e "2. Update the Lambda stack with the endpoint name"
+  echo -e "   Example: aws cloudformation update-stack --stack-name tech-translator-lambda --use-previous-template --parameters ParameterKey=SageMakerEndpointName,ParameterValue=YOUR_ENDPOINT_NAME --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+else
+  echo -e "${GREEN}✅ SageMaker endpoint configured: $SAGEMAKER_ENDPOINT${NC}"
+fi

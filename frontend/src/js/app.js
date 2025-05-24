@@ -21,10 +21,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Current conversation ID
     let currentConversationId = null;
     
-    // Initialize UI
+    // Initialize UI - Skip auth for now
     initializeUI();
     
-    // Event listeners for authentication
+    // Event listeners for authentication (keeping mock auth)
     showRegisterButton.addEventListener('click', () => {
         loginForm.style.display = 'none';
         registerForm.style.display = 'block';
@@ -53,7 +53,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Update UI to show chat
             updateUIAfterAuth();
             
-            // Load conversation history
+            // Load conversation history (will be empty for now)
             loadConversationHistory();
         } catch (error) {
             alert('Login failed: ' + error.message);
@@ -118,12 +118,18 @@ document.addEventListener('DOMContentLoaded', function() {
      * Initialize UI based on authentication status
      */
     function initializeUI() {
+        // For now, just show the chat interface directly
+        // You can re-enable auth later by uncommenting the original logic
+        updateUIAfterAuth();
+        
+        /* Original auth-based initialization:
         if (authService.isUserAuthenticated()) {
             updateUIAfterAuth();
             loadConversationHistory();
         } else {
             updateUIAfterLogout();
         }
+        */
     }
     
     /**
@@ -154,14 +160,43 @@ document.addEventListener('DOMContentLoaded', function() {
     /**
      * Add a message to the chat
      */
-    function addMessage(message, isUser) {
+    function addMessage(message, isUser, extraInfo = null) {
         const messageDiv = document.createElement('div');
         messageDiv.className = isUser ? 'user-message' : 'bot-message';
-        messageDiv.textContent = message;
+        
+        // For bot messages, we might want to show extra info like concept/audience
+        if (!isUser && extraInfo) {
+            const infoDiv = document.createElement('div');
+            infoDiv.style.fontSize = '0.8em';
+            infoDiv.style.opacity = '0.7';
+            infoDiv.style.marginBottom = '5px';
+            infoDiv.textContent = `Concept: ${extraInfo.concept} | Audience: ${extraInfo.audience}`;
+            messageDiv.appendChild(infoDiv);
+        }
+        
+        const textDiv = document.createElement('div');
+        textDiv.textContent = message;
+        messageDiv.appendChild(textDiv);
+        
         messageContainer.appendChild(messageDiv);
         
         // Auto-scroll to the bottom
         chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+    
+    /**
+     * Add a loading indicator to the chat
+     */
+    function addLoadingIndicator() {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'bot-message loading-message';
+        loadingDiv.innerHTML = '<span class="loading"></span> Thinking...';
+        messageContainer.appendChild(loadingDiv);
+        
+        // Auto-scroll to the bottom
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        
+        return loadingDiv;
     }
     
     /**
@@ -175,25 +210,50 @@ document.addEventListener('DOMContentLoaded', function() {
         addMessage(message, true);
         userInput.value = '';
         
+        // Add loading indicator
+        const loadingIndicator = addLoadingIndicator();
+        
         try {
             sendButton.disabled = true;
+            userInput.disabled = true;
             
             // Call API
             const data = await apiService.sendQuery(message, currentConversationId);
             
-            // Add bot response to chat
-            addMessage(data.response, false);
+            // Remove loading indicator
+            loadingIndicator.remove();
+            
+            // Add bot response to chat with extra info
+            addMessage(data.response, false, {
+                concept: data.concept,
+                audience: data.audience
+            });
             
             // Update current conversation ID
             currentConversationId = data.conversation_id;
             
-            // Refresh conversation history
-            loadConversationHistory();
+            // Don't refresh conversation history since we're not using auth yet
+            // loadConversationHistory();
         } catch (error) {
             console.error('Error sending message:', error);
-            addMessage('Sorry, there was an error processing your request.', false);
+            
+            // Remove loading indicator
+            loadingIndicator.remove();
+            
+            // Show user-friendly error message
+            let errorMessage = 'Sorry, there was an error processing your request.';
+            
+            if (error.message.includes('AI model is not available')) {
+                errorMessage = 'The AI service is not available. Please ensure the SageMaker endpoint is deployed and configured.';
+            } else if (error.message.includes('Failed to fetch')) {
+                errorMessage = 'Unable to connect to the server. Please check your connection and try again.';
+            }
+            
+            addMessage(errorMessage, false);
         } finally {
             sendButton.disabled = false;
+            userInput.disabled = false;
+            userInput.focus();
         }
     }
     
@@ -201,68 +261,13 @@ document.addEventListener('DOMContentLoaded', function() {
      * Load conversation history
      */
     async function loadConversationHistory() {
-        try {
-            // Clear existing history
-            conversationHistory.innerHTML = '';
-            
-            // Add loading indicator
-            const loadingItem = document.createElement('div');
-            loadingItem.className = 'list-group-item';
-            loadingItem.innerHTML = '<span class="loading"></span> Loading...';
-            conversationHistory.appendChild(loadingItem);
-            
-            // Get conversations
-            const result = await apiService.getConversations();
-            
-            // Remove loading indicator
-            conversationHistory.innerHTML = '';
-            
-            if (result.conversations && result.conversations.length > 0) {
-                // Sort by most recent
-                result.conversations.sort((a, b) => {
-                    return new Date(b.timestamp) - new Date(a.timestamp);
-                });
-                
-                // Add each conversation to the list
-                result.conversations.forEach(conv => {
-                    const item = document.createElement('a');
-                    item.className = 'list-group-item list-group-item-action conversation-item';
-                    if (conv.conversation_id === currentConversationId) {
-                        item.classList.add('active');
-                    }
-                    
-                    // Format timestamp
-                    const timestamp = new Date(conv.timestamp).toLocaleString();
-                    
-                    item.innerHTML = `
-                        <div class="d-flex w-100 justify-content-between">
-                            <h5 class="mb-1">${conv.concept || 'Conversation'}</h5>
-                            <small>${timestamp}</small>
-                        </div>
-                        <p class="mb-1">${conv.query}</p>
-                    `;
-                    
-                    // Add click event to load conversation
-                    item.addEventListener('click', () => loadConversation(conv.conversation_id));
-                    
-                    conversationHistory.appendChild(item);
-                });
-            } else {
-                // No conversations found
-                const noConvItem = document.createElement('div');
-                noConvItem.className = 'list-group-item';
-                noConvItem.textContent = 'No previous conversations';
-                conversationHistory.appendChild(noConvItem);
-            }
-        } catch (error) {
-            console.error('Error loading conversation history:', error);
-            
-            // Show error
-            conversationHistory.innerHTML = '';
-            const errorItem = document.createElement('div');
-            errorItem.className = 'list-group-item text-danger';
-            errorItem.textContent = 'Error loading conversations';
-            conversationHistory.appendChild(errorItem);
+        // Skip this for now since we're not using auth
+        // The conversation history section will remain empty
+        
+        // Hide the conversation history section since it's not functional yet
+        const historySection = document.querySelector('.conversation-history');
+        if (historySection) {
+            historySection.style.display = 'none';
         }
     }
     
@@ -270,47 +275,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * Load a specific conversation
      */
     async function loadConversation(conversationId) {
-        try {
-            // Get conversation details
-            const result = await apiService.getConversations(conversationId);
-            
-            if (result.conversations && result.conversations.length > 0) {
-                const conversation = result.conversations[0];
-                
-                // Clear chat
-                messageContainer.innerHTML = '';
-                
-                // Add welcome message
-                const welcomeDiv = document.createElement('div');
-                welcomeDiv.className = 'bot-message';
-                welcomeDiv.textContent = "Hello! I'm TechTranslator. I can explain data science and machine learning concepts for insurance professionals. Try asking me about concepts like \"R-squared\", \"loss ratio\", or \"predictive models\".";
-                messageContainer.appendChild(welcomeDiv);
-                
-                // Add user query
-                addMessage(conversation.query, true);
-                
-                // Add bot response
-                if (conversation.response) {
-                    addMessage(conversation.response, false);
-                }
-                
-                // Update current conversation ID
-                currentConversationId = conversationId;
-                
-                // Update UI to show active conversation
-                document.querySelectorAll('.conversation-item').forEach(item => {
-                    item.classList.remove('active');
-                });
-                const activeItem = Array.from(document.querySelectorAll('.conversation-item')).find(
-                    item => item.querySelector('p').textContent === conversation.query
-                );
-                if (activeItem) {
-                    activeItem.classList.add('active');
-                }
-            }
-        } catch (error) {
-            console.error('Error loading conversation:', error);
-            alert('Failed to load conversation. Please try again.');
-        }
+        // Skip this for now since we're not using auth
+        console.log('Conversation loading not implemented without authentication');
     }
 });
