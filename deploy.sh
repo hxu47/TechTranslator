@@ -1,5 +1,5 @@
 #!/bin/bash
-# deploy.sh - Script to deploy the TechTranslator CloudFormation stacks
+# deploy.sh - Script to deploy the TechTranslator CloudFormation stacks with Authentication
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
@@ -11,17 +11,21 @@ PROJECT_NAME="TechTranslator"
 REGION="us-east-1"  # Use the region that's available in your AWS Academy Lab
 STACK_NAME_PREFIX="tech-translator"
 LAMBDA_CODE_BUCKET="tech-translator-lambda-code"
+ENABLE_AUTH="true"  # Set to "true" to enable authentication
 
 # Colors for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${YELLOW}Starting deployment of $PROJECT_NAME infrastructure...${NC}"
+echo -e "${BLUE}================================================${NC}"
+echo -e "${BLUE}🚀 Starting deployment of $PROJECT_NAME with Authentication${NC}"
+echo -e "${BLUE}================================================${NC}"
 
 # 1. Deploy S3 resources
-echo -e "${YELLOW}Deploying S3 resources...${NC}"
+echo -e "${YELLOW}📦 Step 1/6: Deploying S3 resources...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/s3.yaml \
   --stack-name "${STACK_NAME_PREFIX}-s3" \
@@ -35,18 +39,21 @@ S3_BUCKET_NAME=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='WebsiteBucketName'].OutputValue" \
   --output text)
 
-echo "Website Bucket Name: $S3_BUCKET_NAME"
+echo -e "${GREEN}✅ S3 resources deployed${NC}"
+echo -e "   Website Bucket: $S3_BUCKET_NAME"
 
 # 2. Deploy DynamoDB resources
-echo -e "${YELLOW}Deploying DynamoDB tables...${NC}"
+echo -e "${YELLOW}📦 Step 2/6: Deploying DynamoDB tables...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/dynamodb.yaml \
   --stack-name "${STACK_NAME_PREFIX}-dynamodb" \
   --parameter-overrides ProjectName=$PROJECT_NAME \
   --region $REGION
 
+echo -e "${GREEN}✅ DynamoDB tables deployed${NC}"
+
 # 3. Deploy Cognito resources
-echo -e "${YELLOW}Deploying Cognito authentication resources...${NC}"
+echo -e "${YELLOW}📦 Step 3/6: Deploying Cognito authentication resources...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/cognito.yaml \
   --stack-name "${STACK_NAME_PREFIX}-cognito" \
@@ -57,7 +64,7 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --region $REGION
 
-# Get Cognito resource IDs for future reference
+# Get Cognito resource IDs
 USER_POOL_ID=$(aws cloudformation describe-stacks \
   --stack-name "${STACK_NAME_PREFIX}-cognito" \
   --region "$REGION" \
@@ -70,28 +77,36 @@ USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" \
   --output text)
 
-echo "Cognito User Pool ID: $USER_POOL_ID"
-echo "Cognito User Pool Client ID: $USER_POOL_CLIENT_ID"
+IDENTITY_POOL_ID=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-cognito" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='IdentityPoolId'].OutputValue" \
+  --output text)
+
+echo -e "${GREEN}✅ Cognito authentication deployed${NC}"
+echo -e "   User Pool ID: $USER_POOL_ID"
+echo -e "   User Pool Client ID: $USER_POOL_CLIENT_ID"
+echo -e "   Identity Pool ID: $IDENTITY_POOL_ID"
 
 # 4. Create/check Lambda code bucket and upload Lambda code
-echo -e "${YELLOW}Setting up Lambda code bucket and uploading Lambda functions...${NC}"
+echo -e "${YELLOW}📦 Step 4/6: Setting up Lambda code...${NC}"
 
 # Check if the bucket exists
 if aws s3api head-bucket --bucket $LAMBDA_CODE_BUCKET 2>/dev/null; then
   echo "Lambda code bucket already exists: $LAMBDA_CODE_BUCKET"
-  CREATE_CODE_BUCKET="false"
 else
   echo "Creating Lambda code bucket: $LAMBDA_CODE_BUCKET"
   aws s3api create-bucket --bucket $LAMBDA_CODE_BUCKET --region $REGION
-  CREATE_CODE_BUCKET="false"  # Set to false since we created it manually
 fi
 
 # Package and upload Lambda code
-echo -e "${YELLOW}Packaging Lambda functions...${NC}"
+echo -e "${YELLOW}🔧 Packaging Lambda functions...${NC}"
 ./package-lambda.sh
 
+echo -e "${GREEN}✅ Lambda code packaged and uploaded${NC}"
+
 # 5. Deploy Lambda functions
-echo -e "${YELLOW}Deploying Lambda functions...${NC}"
+echo -e "${YELLOW}📦 Step 5/6: Deploying Lambda functions...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/lambda.yaml \
   --stack-name "${STACK_NAME_PREFIX}-lambda" \
@@ -101,12 +116,13 @@ aws cloudformation deploy \
     DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
     CognitoStackName="${STACK_NAME_PREFIX}-cognito" \
     LambdaCodeBucket=$LAMBDA_CODE_BUCKET \
-    CreateCodeBucket=$CREATE_CODE_BUCKET \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --region $REGION
 
-# 6. Deploy API Gateway
-echo -e "${YELLOW}Deploying API Gateway...${NC}"
+echo -e "${GREEN}✅ Lambda functions deployed${NC}"
+
+# 6. Deploy API Gateway with Authentication
+echo -e "${YELLOW}📦 Step 6/6: Deploying API Gateway with Authentication...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/api-gateway.yaml \
   --stack-name "${STACK_NAME_PREFIX}-api" \
@@ -114,6 +130,7 @@ aws cloudformation deploy \
     ProjectName=$PROJECT_NAME \
     LambdaStackName="${STACK_NAME_PREFIX}-lambda" \
     CognitoStackName="${STACK_NAME_PREFIX}-cognito" \
+    EnableAuthForQuery=$ENABLE_AUTH \
   --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
   --region $REGION
 
@@ -124,8 +141,49 @@ API_URL=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
   --output text)
 
-echo -e "${GREEN}All resources for $PROJECT_NAME have been deployed successfully!${NC}"
-echo -e "S3 Website URL: http://$S3_BUCKET_NAME.s3-website-$REGION.amazonaws.com"
-echo -e "API Gateway URL: $API_URL"
-echo -e "Cognito User Pool ID: $USER_POOL_ID"
-echo -e "Cognito User Pool Client ID: $USER_POOL_CLIENT_ID"
+echo -e "${GREEN}✅ API Gateway deployed with authentication${NC}"
+
+# 7. Deploy frontend with configuration
+echo -e "${YELLOW}🌐 Deploying frontend with authentication configuration...${NC}"
+./upload-frontend.sh
+
+echo -e "${BLUE}================================================${NC}"
+echo -e "${GREEN}🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!${NC}"
+echo -e "${BLUE}================================================${NC}"
+
+echo -e "${YELLOW}📋 Deployment Summary:${NC}"
+echo -e "   🌐 Website URL: http://$S3_BUCKET_NAME.s3-website-$REGION.amazonaws.com"
+echo -e "   🔗 API Gateway URL: $API_URL"
+echo -e "   🔐 Authentication: ${ENABLE_AUTH}"
+echo -e "   👤 User Pool ID: $USER_POOL_ID"
+echo -e "   📱 Client ID: $USER_POOL_CLIENT_ID"
+echo -e "   🆔 Identity Pool ID: $IDENTITY_POOL_ID"
+
+echo -e "${YELLOW}📝 Next Steps:${NC}"
+echo -e "   1. 🧪 Test user registration and login at the website"
+echo -e "   2. 🤖 Deploy a SageMaker endpoint using the Jupyter notebook"
+echo -e "   3. 🔄 Update Lambda with the SageMaker endpoint name:"
+echo -e "      aws cloudformation update-stack \\"
+echo -e "        --stack-name ${STACK_NAME_PREFIX}-lambda \\"
+echo -e "        --use-previous-template \\"
+echo -e "        --parameters ParameterKey=SageMakerEndpointName,ParameterValue=YOUR_ENDPOINT_NAME \\"
+echo -e "        --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+
+# Check SageMaker endpoint status
+echo -e "${YELLOW}🔍 Checking current SageMaker endpoint configuration...${NC}"
+CURRENT_ENDPOINT=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-lambda" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='CurrentSageMakerEndpoint'].OutputValue" \
+  --output text 2>/dev/null || echo "NOT_CONFIGURED")
+
+if [ "$CURRENT_ENDPOINT" = "NOT_CONFIGURED" ] || [ "$CURRENT_ENDPOINT" = "PLACEHOLDER" ]; then
+  echo -e "${RED}⚠️  WARNING: SageMaker endpoint not configured!${NC}"
+  echo -e "   The app will show an error until you deploy and configure a SageMaker endpoint."
+else
+  echo -e "${GREEN}✅ SageMaker endpoint configured: $CURRENT_ENDPOINT${NC}"
+fi
+
+echo -e "${BLUE}================================================${NC}"
+echo -e "${GREEN}🚀 Your TechTranslator app with authentication is ready!${NC}"
+echo -e "${BLUE}================================================${NC}"

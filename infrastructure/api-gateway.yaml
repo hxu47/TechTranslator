@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'TechTranslator - API Gateway'
+Description: 'TechTranslator - API Gateway with Authentication Enabled'
 
 Parameters:
   ProjectName:
@@ -16,7 +16,7 @@ Parameters:
     Description: Name of the Cognito stack
   EnableAuthForQuery:
     Type: String
-    Default: "false"
+    Default: "true"  # Changed from "false" to "true"
     AllowedValues: ["true", "false"]
     Description: Whether to enable Cognito authentication for the query endpoint
 
@@ -29,7 +29,7 @@ Resources:
     Type: AWS::ApiGateway::RestApi
     Properties:
       Name: !Sub '${ProjectName}-api'
-      Description: 'API for TechTranslator application'
+      Description: 'API for TechTranslator application with authentication'
       EndpointConfiguration:
         Types:
           - REGIONAL
@@ -64,7 +64,7 @@ Resources:
       ParentId: !GetAtt TechTranslatorApi.RootResourceId
       PathPart: 'conversation'
 
-  # API Gateway Method for /query POST - with or without Auth based on condition
+  # API Gateway Method for /query POST - with authentication enabled
   QueryPostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -86,10 +86,19 @@ Resources:
             application/json: 'Empty'
           ResponseParameters:
             method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
         - StatusCode: '400'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: '401'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
         - StatusCode: '500'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
 
-  # API Gateway Method for /query OPTIONS (CORS)
+  # API Gateway Method for /query OPTIONS (Enhanced CORS for auth)
   QueryOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -102,9 +111,10 @@ Resources:
         IntegrationResponses:
           - StatusCode: '200'
             ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
               method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
         RequestTemplates:
           application/json: '{"statusCode": 200}'
       MethodResponses:
@@ -115,6 +125,7 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Max-Age: true
 
   # API Gateway Method for /conversation GET - with Auth
   ConversationGetMethod:
@@ -138,8 +149,17 @@ Resources:
             application/json: 'Empty'
           ResponseParameters:
             method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
         - StatusCode: '400'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+        - StatusCode: '401'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
         - StatusCode: '500'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
 
   # API Gateway Method for /conversation OPTIONS (CORS)
   ConversationOptionsMethod:
@@ -154,9 +174,10 @@ Resources:
         IntegrationResponses:
           - StatusCode: '200'
             ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
               method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
         RequestTemplates:
           application/json: '{"statusCode": 200}'
       MethodResponses:
@@ -167,6 +188,7 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Max-Age: true
 
   # API Gateway Deployment
   ApiDeployment:
@@ -211,3 +233,9 @@ Outputs:
     Value: !Ref TechTranslatorApi
     Export:
       Name: !Sub '${AWS::StackName}-ApiGatewayId'
+      
+  AuthenticationEnabled:
+    Description: Whether authentication is enabled for the query endpoint
+    Value: !Ref EnableAuthForQuery
+    Export:
+      Name: !Sub '${AWS::StackName}-AuthenticationEnabled'
