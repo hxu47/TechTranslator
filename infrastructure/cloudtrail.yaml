@@ -59,6 +59,7 @@ Resources:
       IncludeGlobalServiceEvents: true
       IsMultiRegionTrail: false
       EnableLogFileValidation: true
+      IsLogging: true
       EventSelectors:
         # Track all DynamoDB operations (data layer debugging)
         - ReadWriteType: All
