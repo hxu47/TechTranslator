@@ -21,6 +21,11 @@ Resources:
       Scope: REGIONAL
       DefaultAction:
         Allow: {}
+      # REQUIRED: Top-level VisibilityConfig for the WebACL itself
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub '${ProjectName}WebACL'
       Rules:
         # Rate limiting (most important for your use case)
         - Name: RateLimitRule
