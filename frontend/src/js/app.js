@@ -322,20 +322,32 @@ document.addEventListener('DOMContentLoaded', function() {
      * Handle logout
      */
     async function handleLogout() {
-        console.log('Logout clicked');
+        console.log('Logout clicked - starting logout process');
+        
         try {
+            // Step 1: Call auth service logout
+            console.log('Step 1: Calling authService.logout()');
             await authService.logout();
+            console.log('Step 1: authService.logout() completed');
             
-            // Clear chat sessions and reset UI
+            // Step 2: Clear chat sessions and reset UI
+            console.log('Step 2: Clearing chat sessions');
             chatSessions = {};
             currentConversationId = null;
             localStorage.removeItem('techTranslatorChats');
+            console.log('Step 2: Chat sessions cleared');
             
+            // Step 3: Force UI update
+            console.log('Step 3: Forcing UI update');
             updateUIAfterLogout();
-            //showSuccess('Logged out successfully');
+            console.log('Step 3: UI update completed');
+            
+            console.log('Logout process completed successfully');
+            
         } catch (error) {
             console.error('Logout error:', error);
             // Still update UI even if logout fails
+            console.log('Error occurred, but still updating UI');
             updateUIAfterLogout();
         }
     }
@@ -404,18 +416,31 @@ document.addEventListener('DOMContentLoaded', function() {
      * Update UI after logout
      */
     function updateUIAfterLogout() {
-        console.log('Updating UI after logout');
+        console.log('Updating UI after logout - DETAILED');
         
-        if (authSection) {
-            authSection.style.display = 'block';
-        }
-        
+        // Force hide chat section
         if (chatSection) {
+            console.log('Hiding chat section');
             chatSection.style.display = 'none';
+        } else {
+            console.log('ERROR: chatSection not found');
         }
         
+        // Force show auth section
+        if (authSection) {
+            console.log('Showing auth section');
+            authSection.style.display = 'block';
+        } else {
+            console.log('ERROR: authSection not found');
+        }
+        
+        // Show login form specifically
         showLoginForm();
+        console.log('Login form should now be visible');
+        
+        // Clear forms
         clearForms();
+        console.log('Forms cleared');
     }
     
     /**
