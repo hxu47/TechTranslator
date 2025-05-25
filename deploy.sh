@@ -1,5 +1,5 @@
 #!/bin/bash
-# deploy.sh - Script to deploy the TechTranslator CloudFormation stacks with Authentication
+# deploy.sh - Script to deploy the TechTranslator CloudFormation stacks with Authentication and Monitoring
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
@@ -21,11 +21,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}================================================${NC}"
-echo -e "${BLUE}🚀 Starting deployment of $PROJECT_NAME with Authentication${NC}"
+echo -e "${BLUE}🚀 Starting deployment of $PROJECT_NAME with Authentication & Monitoring${NC}"
 echo -e "${BLUE}================================================${NC}"
 
 # 1. Deploy S3 resources
-echo -e "${YELLOW}📦 Step 1/6: Deploying S3 resources...${NC}"
+echo -e "${YELLOW}📦 Step 1/7: Deploying S3 resources...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/s3.yaml \
   --stack-name "${STACK_NAME_PREFIX}-s3" \
@@ -43,7 +43,7 @@ echo -e "${GREEN}✅ S3 resources deployed${NC}"
 echo -e "   Website Bucket: $S3_BUCKET_NAME"
 
 # 2. Deploy DynamoDB resources
-echo -e "${YELLOW}📦 Step 2/6: Deploying DynamoDB tables...${NC}"
+echo -e "${YELLOW}📦 Step 2/7: Deploying DynamoDB tables...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/dynamodb.yaml \
   --stack-name "${STACK_NAME_PREFIX}-dynamodb" \
@@ -53,7 +53,7 @@ aws cloudformation deploy \
 echo -e "${GREEN}✅ DynamoDB tables deployed${NC}"
 
 # 3. Deploy Cognito resources
-echo -e "${YELLOW}📦 Step 3/6: Deploying Cognito authentication resources...${NC}"
+echo -e "${YELLOW}📦 Step 3/7: Deploying Cognito authentication resources...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/cognito.yaml \
   --stack-name "${STACK_NAME_PREFIX}-cognito" \
@@ -89,7 +89,7 @@ echo -e "   User Pool Client ID: $USER_POOL_CLIENT_ID"
 echo -e "   Identity Pool ID: $IDENTITY_POOL_ID"
 
 # 4. Create/check Lambda code bucket and upload Lambda code
-echo -e "${YELLOW}📦 Step 4/6: Setting up Lambda code...${NC}"
+echo -e "${YELLOW}📦 Step 4/7: Setting up Lambda code...${NC}"
 
 # Check if the bucket exists
 if aws s3api head-bucket --bucket $LAMBDA_CODE_BUCKET 2>/dev/null; then
@@ -106,7 +106,7 @@ echo -e "${YELLOW}🔧 Packaging Lambda functions...${NC}"
 echo -e "${GREEN}✅ Lambda code packaged and uploaded${NC}"
 
 # 5. Deploy Lambda functions
-echo -e "${YELLOW}📦 Step 5/6: Deploying Lambda functions...${NC}"
+echo -e "${YELLOW}📦 Step 5/7: Deploying Lambda functions...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/lambda.yaml \
   --stack-name "${STACK_NAME_PREFIX}-lambda" \
@@ -122,7 +122,7 @@ aws cloudformation deploy \
 echo -e "${GREEN}✅ Lambda functions deployed${NC}"
 
 # 6. Deploy API Gateway with Authentication
-echo -e "${YELLOW}📦 Step 6/6: Deploying API Gateway with Authentication...${NC}"
+echo -e "${YELLOW}📦 Step 6/7: Deploying API Gateway with Authentication...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/api-gateway.yaml \
   --stack-name "${STACK_NAME_PREFIX}-api" \
@@ -143,7 +143,29 @@ API_URL=$(aws cloudformation describe-stacks \
 
 echo -e "${GREEN}✅ API Gateway deployed with authentication${NC}"
 
-# 7. Deploy frontend with configuration
+# 7. NEW STEP: Deploy CloudWatch Monitoring and Governance
+echo -e "${YELLOW}📊 Step 7/7: Deploying CloudWatch monitoring and governance...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/cloudwatch.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-monitoring" \
+  --parameter-overrides \
+    ProjectName=$PROJECT_NAME \
+    LambdaStackName="${STACK_NAME_PREFIX}-lambda" \
+    ApiStackName="${STACK_NAME_PREFIX}-api" \
+    DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
+  --region $REGION
+
+# Get CloudWatch Dashboard URL
+DASHBOARD_URL=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME_PREFIX}-monitoring" \
+  --region "$REGION" \
+  --query "Stacks[0].Outputs[?OutputKey=='DashboardUrl'].OutputValue" \
+  --output text)
+
+echo -e "${GREEN}✅ CloudWatch monitoring deployed${NC}"
+echo -e "   Dashboard URL: $DASHBOARD_URL"
+
+# 8. Deploy frontend with configuration
 echo -e "${YELLOW}🌐 Deploying frontend with authentication configuration...${NC}"
 ./upload-frontend.sh
 
@@ -154,15 +176,23 @@ echo -e "${BLUE}================================================${NC}"
 echo -e "${YELLOW}📋 Deployment Summary:${NC}"
 echo -e "   🌐 Website URL: http://$S3_BUCKET_NAME.s3-website-$REGION.amazonaws.com"
 echo -e "   🔗 API Gateway URL: $API_URL"
+echo -e "   📊 CloudWatch Dashboard: $DASHBOARD_URL"
 echo -e "   🔐 Authentication: ${ENABLE_AUTH}"
 echo -e "   👤 User Pool ID: $USER_POOL_ID"
 echo -e "   📱 Client ID: $USER_POOL_CLIENT_ID"
 echo -e "   🆔 Identity Pool ID: $IDENTITY_POOL_ID"
 
+echo -e "${YELLOW}📊 Monitoring & Governance Features:${NC}"
+echo -e "   ✅ CloudWatch Dashboard with Lambda, API Gateway, DynamoDB metrics"
+echo -e "   ✅ CloudWatch Alarms for error rates and high latency"
+echo -e "   ✅ Log retention policies for cost optimization"
+echo -e "   ✅ Custom metrics for SageMaker endpoint health"
+
 echo -e "${YELLOW}📝 Next Steps:${NC}"
 echo -e "   1. 🧪 Test user registration and login at the website"
-echo -e "   2. 🤖 Deploy a SageMaker endpoint using the Jupyter notebook"
-echo -e "   3. 🔄 Update Lambda with the SageMaker endpoint name:"
+echo -e "   2. 📊 View monitoring dashboard: $DASHBOARD_URL"
+echo -e "   3. 🤖 Deploy a SageMaker endpoint using the Jupyter notebook"
+echo -e "   4. 🔄 Update Lambda with the SageMaker endpoint name:"
 echo -e "      aws cloudformation update-stack \\"
 echo -e "        --stack-name ${STACK_NAME_PREFIX}-lambda \\"
 echo -e "        --use-previous-template \\"
@@ -185,5 +215,6 @@ else
 fi
 
 echo -e "${BLUE}================================================${NC}"
-echo -e "${GREEN}🚀 Your TechTranslator app with authentication is ready!${NC}"
+echo -e "${GREEN}🚀 Your TechTranslator app with monitoring is ready!${NC}"
+echo -e "${YELLOW}📸 For Milestone 2 screenshots, visit: $DASHBOARD_URL${NC}"
 echo -e "${BLUE}================================================${NC}"
