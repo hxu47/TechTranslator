@@ -21,7 +21,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}================================================${NC}"
-echo -e "${BLUE}🚀 Starting deployment of $PROJECT_NAME with Authentication & Monitoring${NC}"
+echo -e "${BLUE}🚀 Starting deployment of $PROJECT_NAME with Authentication, Monitoring & Security${NC}"
 echo -e "${BLUE}================================================${NC}"
 
 # 1. Deploy S3 resources
@@ -122,7 +122,7 @@ aws cloudformation deploy \
 echo -e "${GREEN}✅ Lambda functions deployed${NC}"
 
 # 6. Deploy API Gateway with Authentication
-echo -e "${YELLOW}📦 Step 6/7: Deploying API Gateway with Authentication...${NC}"
+echo -e "${YELLOW}📦 Step 6/9: Deploying API Gateway with Authentication...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/api-gateway.yaml \
   --stack-name "${STACK_NAME_PREFIX}-api" \
@@ -143,8 +143,20 @@ API_URL=$(aws cloudformation describe-stacks \
 
 echo -e "${GREEN}✅ API Gateway deployed with authentication${NC}"
 
-# 7. NEW STEP: Deploy CloudWatch Monitoring and Governance
-echo -e "${YELLOW}📊 Step 7/7: Deploying CloudWatch monitoring and governance...${NC}"
+# 7. NEW: Deploy WAF Protection
+echo -e "${YELLOW}🛡️ Step 7/9: Deploying WAF security protection...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/waf.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-waf" \
+  --parameter-overrides \
+    ProjectName=$PROJECT_NAME \
+    ApiStackName="${STACK_NAME_PREFIX}-api" \
+  --region $REGION
+
+echo -e "${GREEN}✅ WAF protection deployed${NC}"
+
+# 8. Deploy CloudWatch Monitoring and Governance
+echo -e "${YELLOW}📊 Step 8/9: Deploying CloudWatch monitoring and governance...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/cloudwatch.yaml \
   --stack-name "${STACK_NAME_PREFIX}-monitoring" \
@@ -165,18 +177,6 @@ DASHBOARD_URL=$(aws cloudformation describe-stacks \
 echo -e "${GREEN}✅ CloudWatch monitoring deployed${NC}"
 echo -e "   Dashboard URL: $DASHBOARD_URL"
 
-# Step 8: Deploy CloudTrail Audit Logging
-echo -e "${YELLOW}📋 Step 8/8: Deploying CloudTrail audit logging...${NC}"
-aws cloudformation deploy \
-  --template-file infrastructure/cloudtrail.yaml \
-  --stack-name "${STACK_NAME_PREFIX}-cloudtrail" \
-  --parameter-overrides \
-    ProjectName=$PROJECT_NAME \
-    DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
-  --region $REGION
-
-echo -e "${GREEN}✅ CloudTrail audit logging deployed${NC}"
-
 # 8. Deploy frontend with configuration
 echo -e "${YELLOW}🌐 Deploying frontend with authentication configuration...${NC}"
 ./upload-frontend.sh
@@ -194,7 +194,8 @@ echo -e "   👤 User Pool ID: $USER_POOL_ID"
 echo -e "   📱 Client ID: $USER_POOL_CLIENT_ID"
 echo -e "   🆔 Identity Pool ID: $IDENTITY_POOL_ID"
 
-echo -e "${YELLOW}📊 Monitoring & Governance Features:${NC}"
+echo -e "${YELLOW}📊 Security & Monitoring Features:${NC}"
+echo -e "   ✅ WAF Protection: Rate limiting, SQL injection, XSS protection"
 echo -e "   ✅ CloudWatch Dashboard with Lambda, API Gateway, DynamoDB metrics"
 echo -e "   ✅ CloudWatch Alarms for error rates and high latency"
 echo -e "   ✅ Log retention policies for cost optimization"
