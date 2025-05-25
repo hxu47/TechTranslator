@@ -1,4 +1,4 @@
-# main lambda
+# main lambda - FIXED VERSION
 import json
 import boto3
 import os
@@ -31,7 +31,7 @@ CORS_HEADERS = {
 }
 
 def lambda_handler(event, context):
-    """Main Lambda function - simplified without vector search"""
+    """Main Lambda function - Enhanced with better context handling"""
     try:
         logger.info(f"Received event: {json.dumps(event)}")
         
@@ -54,43 +54,68 @@ def lambda_handler(event, context):
         
         logger.info(f"Processing query: {query} for user: {user_id}")
         
-        # Step 1: Extract concept and audience
-        concept_and_audience = extract_concept_and_audience(query)
-        concept = concept_and_audience['concept']
-        audience = concept_and_audience['audience']
-        
-        logger.info(f"Extracted concept: {concept}, audience: {audience}")
-        
         # Check if SageMaker endpoint is configured
         if not SAGEMAKER_ENDPOINT or SAGEMAKER_ENDPOINT in ['', 'NOT_CONFIGURED', 'PLACEHOLDER']:
             logger.error("SageMaker endpoint not configured")
             return {
-                'statusCode': 503,  # Service Unavailable
+                'statusCode': 503,
                 'headers': CORS_HEADERS,
                 'body': json.dumps({
                     'error': 'AI service temporarily unavailable',
                     'message': 'SageMaker endpoint not configured. Please deploy the model first.',
-                    'concept': concept,
-                    'audience': audience
+                    'concept': 'unknown',
+                    'audience': 'general'
                 })
             }
         
-        # Step 2: Get relevant context from DynamoDB (without vector search)
-        relevant_chunks = get_relevant_context(concept, audience)
+        # Get conversation history to check for context
+        conversation_context = get_conversation_context(user_id, conversation_id) if conversation_id else None
+        logger.info(f"Conversation context: {conversation_context}")
         
+        # Determine if this is a follow-up question
+        is_follow_up = is_follow_up_question(query, conversation_context)
+        logger.info(f"Is follow-up question: {is_follow_up}")
+        
+        # Extract concept and audience
+        if is_follow_up and conversation_context:
+            # For follow-up questions, preserve the previous context
+            concept = conversation_context.get('concept', 'unknown')
+            audience = conversation_context.get('audience', 'general')
+            logger.info(f"Using preserved context - Concept: {concept}, Audience: {audience}")
+        else:
+            # For new questions, extract concept and audience
+            concept_and_audience = extract_concept_and_audience(query)
+            concept = concept_and_audience['concept']
+            audience = concept_and_audience['audience']
+            logger.info(f"Extracted new context - Concept: {concept}, Audience: {audience}")
+        
+        # Skip processing if concept is unknown and it's not in our knowledge base
+        if concept == 'unknown':
+            return {
+                'statusCode': 200,
+                'headers': CORS_HEADERS,
+                'body': json.dumps({
+                    'query': query,
+                    'response': "I'm sorry, but I can only explain data science and machine learning concepts related to insurance, such as R-squared, loss ratio, and predictive models. Could you please ask about one of these topics?",
+                    'concept': 'unknown',
+                    'audience': audience,
+                    'conversation_id': conversation_id or str(uuid.uuid4())
+                })
+            }
+        
+        # Get relevant context from DynamoDB
+        relevant_chunks = get_relevant_context(concept, audience)
         logger.info(f"Retrieved {len(relevant_chunks)} relevant chunks")
         
-        # Step 3: Generate response using SageMaker
-        response = generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks)
-        
+        # Generate response using SageMaker
+        response = generate_response_with_sagemaker(query, {'concept': concept, 'audience': audience}, relevant_chunks, is_follow_up)
         logger.info("Generated response using SageMaker")
         
-        # Step 4: Store conversation
+        # Store conversation
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
         
         store_conversation(user_id, conversation_id, query, response, concept, audience)
-        
         logger.info(f"Stored conversation: {conversation_id}")
         
         return {
@@ -113,14 +138,14 @@ def lambda_handler(event, context):
         }
 
 def extract_concept_and_audience(query):
-    """Extract concept and audience from user query"""
+    """Extract concept and audience from user query - IMPROVED"""
     query_lower = query.lower()
     
-    # Concept mapping
+    # Concept mapping - more comprehensive
     concept_keywords = {
-        'r-squared': ['r squared', 'r-squared', 'r2', 'coefficient of determination'],
-        'loss-ratio': ['loss ratio', 'claims ratio', 'incurred losses'],
-        'predictive-model': ['predictive model', 'prediction model', 'machine learning', 'ml model']
+        'r-squared': ['r squared', 'r-squared', 'r2', 'coefficient of determination', 'r square'],
+        'loss-ratio': ['loss ratio', 'claims ratio', 'incurred losses', 'loss ratios'],
+        'predictive-model': ['predictive model', 'prediction model', 'machine learning', 'ml model', 'models', 'modeling', 'algorithm']
     }
     
     detected_concept = None
@@ -129,14 +154,15 @@ def extract_concept_and_audience(query):
             detected_concept = concept_id
             break
     
+    # IMPORTANT: Don't default to anything - return 'unknown' if no match
     if not detected_concept:
-        detected_concept = 'predictive-model'  # Default
+        detected_concept = 'unknown'
     
-    # Audience mapping
+    # Audience mapping - more comprehensive
     audience_keywords = {
-        'underwriter': ['underwriter', 'underwriting'],
+        'underwriter': ['underwriter', 'underwriting', 'underwriters'],
         'actuary': ['actuary', 'actuarial', 'actuaries'],
-        'executive': ['executive', 'ceo', 'manager', 'leadership']
+        'executive': ['executive', 'ceo', 'manager', 'leadership', 'executives', 'management']
     }
     
     detected_audience = None
@@ -150,12 +176,75 @@ def extract_concept_and_audience(query):
     
     return {'concept': detected_concept, 'audience': detected_audience}
 
+def is_follow_up_question(query, conversation_context):
+    """Determine if this is a follow-up question"""
+    if not conversation_context:
+        return False
+    
+    query_lower = query.lower()
+    
+    # Follow-up indicators
+    follow_up_patterns = [
+        'example', 'more', 'explain', 'tell me more', 'what about', 'can you', 'how about',
+        'why', 'how', 'when', 'where', 'give me', 'show me', 'another', 'different',
+        'what if', 'suppose', 'imagine', 'consider', 'think about', 'elaborate',
+        'important', 'matter', 'significant', 'relevant', 'useful', 'helpful'
+    ]
+    
+    # Check if query contains follow-up patterns and is relatively short
+    has_follow_up_pattern = any(pattern in query_lower for pattern in follow_up_patterns)
+    is_short = len(query.split()) <= 10  # Short questions are more likely to be follow-ups
+    
+    # Check if query does NOT contain concept keywords (strong indicator of follow-up)
+    concept_keywords = ['r squared', 'r-squared', 'loss ratio', 'predictive model', 'machine learning']
+    has_concept_keywords = any(keyword in query_lower for keyword in concept_keywords)
+    
+    return has_follow_up_pattern and (is_short or not has_concept_keywords)
+
+def get_conversation_context(user_id, conversation_id):
+    """Get the last concept/audience from conversation history"""
+    if not conversation_id:
+        return None
+    
+    try:
+        # Call conversation Lambda to get history
+        payload = {
+            'action': 'get',
+            'user_id': user_id,
+            'conversation_id': conversation_id
+        }
+        
+        response = lambda_client.invoke(
+            FunctionName=CONVERSATION_FUNCTION,
+            InvocationType='RequestResponse',
+            Payload=json.dumps(payload)
+        )
+        
+        result = json.loads(response['Payload'].read())
+        
+        if result.get('statusCode') == 200 and result.get('conversations'):
+            conversations = result['conversations']
+            if conversations:
+                # Get the most recent conversation entry with concept info
+                for conv in sorted(conversations, key=lambda x: x.get('timestamp', ''), reverse=True):
+                    if conv.get('concept') and conv.get('concept') != 'unknown':
+                        return {
+                            'concept': conv.get('concept'),
+                            'audience': conv.get('audience', 'general')
+                        }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error getting conversation context: {str(e)}")
+        return None
+
 def get_relevant_context(concept, audience, max_items=5):
-    """Get relevant context from DynamoDB without vector search"""
+    """Get relevant context from DynamoDB"""
     try:
         table = dynamodb.Table(VECTOR_TABLE)
         
-        # Query by concept_id (much simpler than vector search)
+        # Query by concept_id
         response = table.query(
             KeyConditionExpression="concept_id = :concept_id",
             ExpressionAttributeValues={":concept_id": concept},
@@ -178,8 +267,8 @@ def get_relevant_context(concept, audience, max_items=5):
         logger.error(f"Error getting context: {str(e)}")
         return []
 
-def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks):
-    """Generate response using SageMaker FLAN-T5 endpoint"""
+def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks, is_follow_up=False):
+    """Generate response using SageMaker FLAN-T5 endpoint - ENHANCED"""
     try:
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
@@ -187,10 +276,21 @@ def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunk
         # Create context from relevant chunks
         context_text = ""
         for chunk in relevant_chunks[:3]:  # Use top 3 chunks
-            context_text += f"- {chunk['item']['text'][:200]}...\n"
+            context_text += f"- {chunk['item']['text'][:300]}...\n"
         
-        # Create instruction-style prompt for FLAN-T5
-        if context_text.strip():
+        # Create different prompts for new questions vs follow-ups
+        if is_follow_up and context_text.strip():
+            # For follow-ups, be more specific about continuing the conversation
+            prompt = f"""You are continuing a conversation about {concept.replace('-', ' ')} for an insurance {audience}.
+
+Previous context:
+{context_text}
+
+Follow-up question: {query}
+
+Provide a helpful follow-up response that builds on the previous information:"""
+        elif context_text.strip():
+            # For new questions with context
             prompt = f"""Based on the following information, explain {concept.replace('-', ' ')} to an insurance {audience}.
 
 Context:
@@ -211,7 +311,7 @@ Provide a clear, professional explanation:"""
         payload = {
             "inputs": prompt,
             "parameters": {
-                "max_new_tokens": 150,
+                "max_new_tokens": 200,  # Increased for better responses
                 "temperature": 0.7,
                 "do_sample": True,
                 "top_p": 0.9,
