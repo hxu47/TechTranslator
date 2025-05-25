@@ -12,9 +12,9 @@
 <body>
     <div class="container-fluid">
         <!-- Chat Section - Main Interface -->
-        <div class="row" id="chatSection">
+        <div id="chatSection">
             <!-- Sidebar for Chat History -->
-            <div class="col-md-3 col-lg-2 sidebar">
+            <div class="sidebar">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0">TechTranslator</h5>
                     <button class="btn btn-outline-secondary btn-sm" id="logoutButton" style="display: none;">
@@ -35,30 +35,30 @@
             </div>
 
             <!-- Main Chat Area -->
-            <div class="col-md-9 col-lg-10 main-chat">
-                <div class="chat-header d-flex justify-content-between align-items-center mb-3">
+            <div class="main-chat">
+                <div class="chat-header">
                     <div>
                         <h4 id="currentChatTitle">New Chat</h4>
                         <p class="text-muted mb-0">Translating Data Science & ML Concepts for Insurance Professionals</p>
                     </div>
                 </div>
                 
-                <div class="chat-container mb-3" id="chatContainer">
+                <div class="chat-container" id="chatContainer">
                     <div class="message-container" id="messageContainer">
                         <!-- Messages will be populated here -->
                     </div>
                 </div>
 
-                <div class="input-group">
-                    <input type="text" class="form-control" id="userInput" 
-                           placeholder="Ask about R-squared, loss ratio, predictive models, or specify your role...">
-                    <button class="btn btn-primary" type="button" id="sendButton">
-                        <i class="bi bi-send"></i> Send
-                    </button>
-                </div>
-                
-                <!-- Help/Examples Section -->
-                <div class="mt-3">
+                <div class="input-section">
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" id="userInput" 
+                               placeholder="Ask about R-squared, loss ratio, predictive models, or specify your role...">
+                        <button class="btn btn-primary" type="button" id="sendButton">
+                            <i class="bi bi-send"></i> Send
+                        </button>
+                    </div>
+                    
+                    <!-- Help/Examples Section -->
                     <div class="card">
                         <div class="card-body">
                             <h6 class="card-title">
