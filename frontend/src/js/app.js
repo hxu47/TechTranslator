@@ -1,21 +1,18 @@
 /**
- * Main application logic for TechTranslator - With Real Authentication
+ * Main application logic for TechTranslator - Email-based User ID Version
  */
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded - starting app with authentication');
+    console.log('DOM loaded - starting app with email-based user ID');
     
     // DOM Elements - with null checks
     const authSection = document.getElementById('authSection');
     const chatSection = document.getElementById('chatSection');
     const loginForm = document.getElementById('loginForm');
     const registerForm = document.getElementById('registerForm');
-    const confirmForm = document.getElementById('confirmForm');
     const showRegisterButton = document.getElementById('showRegisterButton');
     const showLoginButton = document.getElementById('showLoginButton');
     const loginButton = document.getElementById('loginButton');
     const registerButton = document.getElementById('registerButton');
-    const confirmButton = document.getElementById('confirmButton');
-    const resendCodeButton = document.getElementById('resendCodeButton');
     const logoutButton = document.getElementById('logoutButton');
     const chatContainer = document.getElementById('chatContainer');
     const messageContainer = document.getElementById('messageContainer');
@@ -24,14 +21,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const conversationHistory = document.getElementById('conversationHistory');
     const newChatButton = document.getElementById('newChatButton');
     const currentChatTitle = document.getElementById('currentChatTitle');
-    const userEmailDisplay = document.getElementById('userEmailDisplay');
     
     // Chat management
     let currentConversationId = null;
     let chatSessions = {};
     let chatCounter = 1;
     let pageLoaded = false;
-    let pendingRegistrationEmail = null;
+    let userEmail = null;
     
     // Mark page as loaded after a short delay
     setTimeout(() => {
@@ -39,26 +35,30 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Page ready for interactions');
     }, 500);
     
-    // Initialize UI based on authentication status
-    initializeUI();
+    // Initialize UI with email check
+    initializeWithEmail();
     
-    // Event listeners for authentication
+    // Event listeners for authentication (keeping mock auth structure but with null checks)
     if (showRegisterButton) {
         showRegisterButton.addEventListener('click', () => {
-            showRegisterForm();
+            if (loginForm && registerForm) {
+                loginForm.style.display = 'none';
+                registerForm.style.display = 'block';
+            }
         });
     }
     
     if (showLoginButton) {
         showLoginButton.addEventListener('click', () => {
-            showLoginForm();
+            if (registerForm && loginForm) {
+                registerForm.style.display = 'none';
+                loginForm.style.display = 'block';
+            }
         });
     }
     
     if (loginButton) loginButton.addEventListener('click', handleLogin);
     if (registerButton) registerButton.addEventListener('click', handleRegister);
-    if (confirmButton) confirmButton.addEventListener('click', handleConfirmRegistration);
-    if (resendCodeButton) resendCodeButton.addEventListener('click', handleResendCode);
     if (logoutButton) logoutButton.addEventListener('click', handleLogout);
     
     // Event listeners for chat
@@ -84,293 +84,142 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    /**
-     * Initialize UI based on authentication status
-     */
-    async function initializeUI() {
-        console.log('Initializing UI with authentication check');
+    // ==========================================
+    // EMAIL-BASED USER ID FUNCTIONS
+    // ==========================================
+    
+    function getUserEmail() {
+        let email = localStorage.getItem('user_email');
         
-        // Check if user is already authenticated
-        const isAuthenticated = await authService.checkExistingSession();
+        if (!email || !isValidEmail(email)) {
+            return null; // Will trigger email modal
+        }
         
-        if (isAuthenticated) {
-            console.log('User is authenticated, showing chat interface');
-            updateUIAfterAuth();
-            loadUserData();
+        return email.toLowerCase().trim();
+    }
+    
+    function isValidEmail(email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    }
+    
+    function initializeWithEmail() {
+        console.log('Initializing with email check...');
+        
+        userEmail = getUserEmail();
+        
+        if (!userEmail) {
+            showEmailModal();
         } else {
-            console.log('User not authenticated, showing login form');
-            updateUIAfterLogout();
+            continueInitialization();
         }
     }
     
-    /**
-     * Show login form
-     */
-    function showLoginForm() {
-        if (loginForm && registerForm && confirmForm) {
-            loginForm.style.display = 'block';
-            registerForm.style.display = 'none';
-            confirmForm.style.display = 'none';
-        }
-        clearForms();
-    }
-    
-    /**
-     * Show register form
-     */
-    function showRegisterForm() {
-        if (registerForm && loginForm && confirmForm) {
-            registerForm.style.display = 'block';
-            loginForm.style.display = 'none';
-            confirmForm.style.display = 'none';
-        }
-        clearForms();
-    }
-    
-    /**
-     * Show confirmation form
-     */
-    function showConfirmForm() {
-        if (confirmForm && loginForm && registerForm) {
-            confirmForm.style.display = 'block';
-            loginForm.style.display = 'none';
-            registerForm.style.display = 'none';
-        }
-    }
-    
-    /**
-     * Handle login
-     */
-    async function handleLogin() {
-        console.log('Login clicked');
-        const email = document.getElementById('email')?.value;
-        const password = document.getElementById('password')?.value;
-        
-        if (!email || !password) {
-            showError('Please enter email and password');
-            return;
-        }
-        
-        try {
-            if (loginButton) {
-                loginButton.disabled = true;
-                loginButton.innerHTML = '<span class="loading"></span> Logging in...';
-            }
-            
-            const result = await authService.login(email, password);
-            
-            if (result.success) {
-                console.log('Login successful');
-                updateUIAfterAuth();
-                loadUserData();
-                //showSuccess('Login successful!');
-            } else if (result.challenge) {
-                showError(result.message || 'Additional authentication required');
-                // Handle challenges if needed
-            }
-            
-        } catch (error) {
-            console.error('Login failed:', error);
-            showError('Login failed: ' + error.message);
-        } finally {
-            if (loginButton) {
-                loginButton.disabled = false;
-                loginButton.innerHTML = 'Login';
-            }
-        }
-    }
-    
-    /**
-     * Handle registration
-     */
-    async function handleRegister() {
-        console.log('Register clicked');
-        const email = document.getElementById('registerEmail')?.value;
-        const password = document.getElementById('registerPassword')?.value;
-        const confirmPassword = document.getElementById('confirmPassword')?.value;
-        const name = document.getElementById('registerName')?.value || '';
-        
-        if (!email || !password || !confirmPassword) {
-            showError('Please fill all required fields');
-            return;
-        }
-        
-        if (password !== confirmPassword) {
-            showError('Passwords do not match');
-            return;
-        }
-        
-        if (password.length < 8) {
-            showError('Password must be at least 8 characters long');
-            return;
-        }
-        
-        try {
-            if (registerButton) {
-                registerButton.disabled = true;
-                registerButton.innerHTML = '<span class="loading"></span> Registering...';
-            }
-            
-            const result = await authService.register(email, password, name);
-            
-            if (result.success) {
-                pendingRegistrationEmail = email;
-                
-                if (result.needsConfirmation) {
-                    showConfirmForm();
-                    showSuccess('Registration successful! Please check your email for a verification code.');
+    function showEmailModal() {
+        // Create modal HTML
+        const modalHTML = `
+            <div id="emailModal" class="modal" style="display: block; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8);">
+                <div class="modal-content" style="background-color: #ffffff; margin: 10% auto; padding: 30px; border-radius: 15px; width: 450px; max-width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                    <div style="text-align: center; margin-bottom: 25px;">
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 60px; height: 60px; border-radius: 50%; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center;">
+                            <i class="bi bi-envelope" style="color: white; font-size: 24px;"></i>
+                        </div>
+                        <h3 style="color: #2c3e50; margin: 0; font-size: 24px;">Welcome to TechTranslator</h3>
+                        <p style="color: #5a6c7d; margin: 10px 0 0 0; font-size: 16px;">AI-powered insurance concept explanations</p>
+                    </div>
                     
-                    // Pre-fill email in confirmation form
-                    const confirmEmailInput = document.getElementById('confirmEmail');
-                    if (confirmEmailInput) confirmEmailInput.value = email;
-                } else {
-                    // Auto-confirmed, go to login
-                    showLoginForm();
-                    const emailInput = document.getElementById('email');
-                    if (emailInput) emailInput.value = email;
-                    showSuccess('Registration successful! You can now log in.');
-                }
-            }
-        } catch (error) {
-            console.error('Registration failed:', error);
-            showError('Registration failed: ' + error.message);
-        } finally {
-            if (registerButton) {
-                registerButton.disabled = false;
-                registerButton.innerHTML = 'Register';
-            }
+                    <p style="color: #5a6c7d; margin-bottom: 25px; text-align: center; line-height: 1.5;">
+                        Enter your email to personalize your experience and save your conversation history across sessions.
+                    </p>
+                    
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <input type="email" id="modalEmail" placeholder="your.email@company.com" 
+                               style="width: 100%; padding: 15px; border: 2px solid #e9ecef; border-radius: 10px; font-size: 16px; box-sizing: border-box;"
+                               required>
+                        <div id="emailError" style="color: #dc3545; font-size: 14px; margin-top: 5px; display: none;">
+                            Please enter a valid email address
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <button id="skipEmail" style="background: none; border: none; color: #6c757d; cursor: pointer; font-size: 14px; text-decoration: underline;">
+                            Skip for now
+                        </button>
+                        <button id="saveEmail" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 25px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 500;">
+                            Get Started
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add modal to page
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        
+        // Add event listeners
+        document.getElementById('saveEmail').addEventListener('click', handleEmailSave);
+        document.getElementById('skipEmail').addEventListener('click', handleEmailSkip);
+        document.getElementById('modalEmail').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') handleEmailSave();
+        });
+        
+        // Focus on input
+        setTimeout(() => {
+            document.getElementById('modalEmail').focus();
+        }, 100);
+    }
+    
+    function handleEmailSave() {
+        const emailInput = document.getElementById('modalEmail');
+        const errorDiv = document.getElementById('emailError');
+        const email = emailInput.value.trim().toLowerCase();
+        
+        if (isValidEmail(email)) {
+            localStorage.setItem('user_email', email);
+            userEmail = email;
+            closeEmailModal();
+            continueInitialization();
+            console.log('User email saved:', email);
+        } else {
+            errorDiv.style.display = 'block';
+            emailInput.style.borderColor = '#dc3545';
+            emailInput.focus();
         }
     }
     
-    /**
-     * Handle email confirmation
-     */
-    async function handleConfirmRegistration() {
-        console.log('Confirm registration clicked');
-        const email = document.getElementById('confirmEmail')?.value || pendingRegistrationEmail;
-        const code = document.getElementById('confirmationCode')?.value;
-        
-        if (!email || !code) {
-            showError('Please enter email and confirmation code');
-            return;
-        }
-        
-        try {
-            if (confirmButton) {
-                confirmButton.disabled = true;
-                confirmButton.innerHTML = '<span class="loading"></span> Confirming...';
-            }
-            
-            const result = await authService.confirmRegistration(email, code);
-            
-            if (result.success) {
-                showLoginForm();
-                
-                // Pre-fill email
-                const emailInput = document.getElementById('email');
-                if (emailInput) emailInput.value = email;
-                
-                showSuccess('Email confirmed successfully! You can now log in.');
-                pendingRegistrationEmail = null;
-            }
-        } catch (error) {
-            console.error('Confirmation failed:', error);
-            showError('Confirmation failed: ' + error.message);
-        } finally {
-            if (confirmButton) {
-                confirmButton.disabled = false;
-                confirmButton.innerHTML = 'Confirm Email';
-            }
+    function handleEmailSkip() {
+        const anonymousEmail = 'user_' + Date.now() + '@anonymous.local';
+        localStorage.setItem('user_email', anonymousEmail);
+        userEmail = anonymousEmail;
+        closeEmailModal();
+        continueInitialization();
+        console.log('Using anonymous email:', anonymousEmail);
+    }
+    
+    function closeEmailModal() {
+        const modal = document.getElementById('emailModal');
+        if (modal) {
+            modal.remove();
         }
     }
     
-    /**
-     * Handle resend confirmation code
-     */
-    async function handleResendCode() {
-        console.log('Resend code clicked');
-        const email = document.getElementById('confirmEmail')?.value || pendingRegistrationEmail;
+    function continueInitialization() {
+        console.log('Continuing initialization with email:', userEmail);
         
-        if (!email) {
-            showError('Please enter your email address');
-            return;
-        }
+        // Update UI to show authenticated state
+        updateUIAfterAuth();
         
-        try {
-            if (resendCodeButton) {
-                resendCodeButton.disabled = true;
-                resendCodeButton.innerHTML = '<span class="loading"></span> Sending...';
-            }
-            
-            const result = await authService.resendConfirmationCode(email);
-            
-            if (result.success) {
-                showSuccess('Confirmation code sent! Please check your email.');
-            }
-        } catch (error) {
-            console.error('Resend failed:', error);
-            showError('Failed to resend code: ' + error.message);
-        } finally {
-            if (resendCodeButton) {
-                resendCodeButton.disabled = false;
-                resendCodeButton.innerHTML = 'Resend Code';
-            }
-        }
-    }
-    
-    /**
-     * Handle logout
-     */
-    async function handleLogout() {
-        console.log('Logout clicked - starting logout process');
+        // Update user display
+        updateUserEmailDisplay();
         
-        try {
-            // Step 1: Save current user's chats before logout
-            console.log('Step 1: Saving current user chats before logout');
-            saveChatSessions();
-            
-            // Step 2: Call auth service logout
-            console.log('Step 2: Calling authService.logout()');
-            await authService.logout();
-            console.log('Step 2: authService.logout() completed');
-            
-            // Step 3: Clear current chat sessions (they're saved above)
-            console.log('Step 3: Clearing current chat sessions');
-            chatSessions = {};
-            currentConversationId = null;
-            console.log('Step 3: Chat sessions cleared');
-            
-            // Step 4: Force UI update
-            console.log('Step 4: Forcing UI update');
-            updateUIAfterLogout();
-            console.log('Step 4: UI update completed');
-            
-            console.log('Logout process completed successfully');
-            
-        } catch (error) {
-            console.error('Logout error:', error);
-            updateUIAfterLogout();
-        }
-    }
-    
-    /**
-     * Load user data after authentication
-     */
-    function loadUserData() {
-        // Load user-specific chat sessions
+        // Load chat sessions
         loadChatSessions();
         
-        // Display user email
-        const userEmail = authService.getUserEmail();
-        if (userEmailDisplay && userEmail) {
-            userEmailDisplay.textContent = userEmail;
-        }
-        
-        // Create the first chat session if no existing sessions
+        // Create first chat if needed
         if (Object.keys(chatSessions).length === 0) {
             createNewChat();
         } else {
-            // Switch to the most recent chat
+            // Switch to most recent chat
             const sortedChats = Object.values(chatSessions).sort((a, b) => 
                 new Date(b.createdAt) - new Date(a.createdAt)
             );
@@ -380,89 +229,321 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    function updateUserEmailDisplay() {
+        const sidebar = document.querySelector('.sidebar');
+        if (!sidebar || !userEmail) return;
+        
+        // Remove existing display
+        const existingDisplay = sidebar.querySelector('.user-email-display');
+        if (existingDisplay) existingDisplay.remove();
+        
+        // Create user email display
+        const userDisplay = document.createElement('div');
+        userDisplay.className = 'user-email-display';
+        userDisplay.style.cssText = `
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+            word-break: break-word;
+            cursor: pointer;
+            transition: transform 0.2s;
+        `;
+        
+        const isAnonymous = userEmail.includes('@anonymous.local');
+        const displayName = getDisplayName(userEmail);
+        const displayEmail = isAnonymous ? 'Anonymous User' : userEmail;
+        
+        userDisplay.innerHTML = `
+            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                <i class="bi bi-person-circle" style="margin-right: 8px; font-size: 16px;"></i>
+                <span style="font-weight: 500;">${displayName}</span>
+            </div>
+            <div style="font-size: 0.8em; opacity: 0.9;">${displayEmail}</div>
+            ${isAnonymous ? '<div style="font-size: 0.75em; opacity: 0.8; margin-top: 4px;">Click to set your email</div>' : ''}
+        `;
+        
+        // Add hover effect
+        userDisplay.addEventListener('mouseenter', () => {
+            userDisplay.style.transform = 'translateY(-2px)';
+        });
+        
+        userDisplay.addEventListener('mouseleave', () => {
+            userDisplay.style.transform = 'translateY(0)';
+        });
+        
+        // Add click to change email
+        userDisplay.addEventListener('click', () => {
+            const newEmail = prompt('Enter your email address:', isAnonymous ? '' : userEmail);
+            if (newEmail && isValidEmail(newEmail)) {
+                localStorage.setItem('user_email', newEmail.toLowerCase().trim());
+                location.reload();
+            }
+        });
+        
+        // Insert after the TechTranslator title
+        const title = sidebar.querySelector('h5');
+        if (title) {
+            title.parentNode.insertBefore(userDisplay, title.nextSibling);
+        }
+    }
+    
+    function getDisplayName(email) {
+        if (email.includes('@anonymous.local')) {
+            return 'Anonymous User';
+        }
+        
+        const localPart = email.split('@')[0];
+        return localPart.replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    
+    // ==========================================
+    // EXISTING FUNCTIONS (Updated for Email)
+    // ==========================================
+    
+    /**
+     * Handle login (mock implementation)
+     */
+    async function handleLogin() {
+        console.log('Login clicked');
+        const email = document.getElementById('email')?.value;
+        const password = document.getElementById('password')?.value;
+        
+        if (!email || !password) {
+            alert('Please enter email and password');
+            return;
+        }
+        
+        try {
+            if (loginButton) {
+                loginButton.disabled = true;
+                loginButton.innerHTML = '<span class="loading"></span> Logging in...';
+            }
+            
+            // Mock login - just update UI
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            updateUIAfterAuth();
+            
+        } catch (error) {
+            alert('Login failed: ' + error.message);
+        } finally {
+            if (loginButton) {
+                loginButton.disabled = false;
+                loginButton.innerHTML = 'Login';
+            }
+        }
+    }
+    
+    /**
+     * Handle registration (mock implementation)
+     */
+    async function handleRegister() {
+        console.log('Register clicked');
+        const email = document.getElementById('registerEmail')?.value;
+        const password = document.getElementById('registerPassword')?.value;
+        const confirmPassword = document.getElementById('confirmPassword')?.value;
+        
+        if (!email || !password || !confirmPassword) {
+            alert('Please fill all fields');
+            return;
+        }
+        
+        if (password !== confirmPassword) {
+            alert('Passwords do not match');
+            return;
+        }
+        
+        try {
+            if (registerButton) {
+                registerButton.disabled = true;
+                registerButton.innerHTML = '<span class="loading"></span> Registering...';
+            }
+            
+            // Mock registration
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Show login form after successful registration
+            if (registerForm && loginForm) {
+                registerForm.style.display = 'none';
+                loginForm.style.display = 'block';
+            }
+            
+            // Pre-fill email
+            const emailInput = document.getElementById('email');
+            if (emailInput) emailInput.value = email;
+            
+            alert('Registration successful! You can now log in.');
+        } catch (error) {
+            alert('Registration failed: ' + error.message);
+        } finally {
+            if (registerButton) {
+                registerButton.disabled = false;
+                registerButton.innerHTML = 'Register';
+            }
+        }
+    }
+    
+    /**
+     * Handle logout
+     */
+    function handleLogout() {
+        console.log('Logout clicked');
+        // Clear chat sessions and reset UI
+        chatSessions = {};
+        currentConversationId = null;
+        localStorage.removeItem('techTranslatorChats');
+        localStorage.removeItem('user_email');
+        location.reload(); // Restart with email modal
+    }
+    
     /**
      * Update UI after successful authentication
      */
     function updateUIAfterAuth() {
-        console.log('Updating UI after auth - WITH CLASSES');
+        console.log('Updating UI after auth');
         
-        // Remove classes and add new ones
         if (authSection) {
-            authSection.classList.add('force-hide');
-            authSection.classList.remove('force-show');
             authSection.style.display = 'none';
         }
         
         if (chatSection) {
-            chatSection.classList.add('force-show');
-            chatSection.classList.remove('force-hide');
-            chatSection.style.display = 'flex';
-            chatSection.style.flexDirection = 'row';
+            chatSection.style.display = 'block';
         }
-        
-        // Ensure sidebar is visible
-        const sidebar = document.querySelector('.sidebar');
-        if (sidebar) {
-            sidebar.style.display = 'block';
-            console.log('Sidebar made visible');
-        }
-        
-        console.log('UI update after auth completed');
     }
+    
+    /**
+     * Send a message to the API (Updated with email user context)
+     */
+    async function sendMessage() {
+        if (!userInput || !userEmail) return;
+        
+        const message = userInput.value.trim();
+        if (!message) return;
 
+        console.log('Sending message:', message, 'for user:', userEmail);
 
-    /**
-     * Update UI after logout
-     */
-    function updateUIAfterLogout() {
-        console.log('Updating UI after logout - WITH CLASSES');
-        
-        // Remove classes and add new ones
-        if (chatSection) {
-            chatSection.classList.add('force-hide');
-            chatSection.classList.remove('force-show');
+        // Add user message to chat
+        addMessage(message, true);
+        userInput.value = '';
+
+        // Add loading indicator
+        const loadingIndicator = addLoadingIndicator();
+
+        try {
+            if (sendButton) sendButton.disabled = true;
+            userInput.disabled = true;
+            
+            // Enhanced query with user context for follow-up questions
+            const followUpKeywords = ['example', 'more', 'explain', 'tell me', 'what about', 'can you', 'how about'];
+            const isFollowUp = followUpKeywords.some(keyword => message.toLowerCase().includes(keyword)) && message.length < 50;
+
+            let queryToSend = message;
+            let contextualInfo = null;
+
+            if (isFollowUp) {
+                contextualInfo = getConversationContext();
+                if (contextualInfo) {
+                    queryToSend = `${message} (continuing discussion about ${contextualInfo.concept} for ${contextualInfo.audience})`;
+                    console.log('Follow-up detected, enhanced query:', queryToSend);
+                }
+            }
+
+            // Update API service to include user email
+            const originalSendQuery = apiService.sendQuery;
+            apiService.sendQuery = async function(query, conversationId) {
+                // Override to include user email in request
+                const response = await fetch(`${this.apiUrl}/query`, {
+                    method: 'POST',
+                    headers: {
+                        ...this.getHeaders(),
+                        'X-User-Context': userEmail  // Add email in header
+                    },
+                    body: JSON.stringify({ 
+                        query,
+                        conversation_id: conversationId,
+                        user_context: userEmail  // Also in body
+                    })
+                });
+                
+                if (!response.ok) {
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        errorData = { error: `Request failed with status ${response.status}` };
+                    }
+                    throw new Error(errorData.error || `API request failed: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            };
+
+            const data = await apiService.sendQuery(queryToSend, currentConversationId);
+
+            // Remove loading indicator
+            if (loadingIndicator) loadingIndicator.remove();
+
+            // For follow-up questions, preserve the context if API doesn't provide it
+            if (isFollowUp && contextualInfo && (!data.concept || data.concept === 'predictive-model')) {
+                console.log('Preserving context for follow-up question');
+                data.concept = contextualInfo.concept;
+                data.audience = contextualInfo.audience;
+            }
+
+            // Add bot response to chat with extra info
+            addMessage(data.response, false, {
+                concept: data.concept,
+                audience: data.audience
+            });
+
+            // Update current conversation ID
+            if (data.conversation_id && data.conversation_id !== currentConversationId) {
+                const oldId = currentConversationId;
+                const newId = data.conversation_id;
+
+                if (chatSessions[oldId]) {
+                    chatSessions[newId] = chatSessions[oldId];
+                    chatSessions[newId].id = newId;
+                    delete chatSessions[oldId];
+                    currentConversationId = newId;
+                    saveChatSessions();
+                    updateChatList();
+                }
+            }
+
+        } catch (error) {
+            console.error('Error sending message:', error);
+            
+            // Remove loading indicator
+            if (loadingIndicator) loadingIndicator.remove();
+            
+            // Show user-friendly error message
+            let errorMessage = 'Sorry, there was an error processing your request.';
+            
+            if (error.message.includes('AI model is not available') || 
+                error.message.includes('AI service temporarily unavailable')) {
+                errorMessage = 'The AI service is not available. Please ensure the SageMaker endpoint is deployed and configured.';
+            } else if (error.message.includes('Failed to fetch')) {
+                errorMessage = 'Unable to connect to the server. Please check your connection and try again.';
+            }
+            
+            addMessage(errorMessage, false);
+        } finally {
+            if (sendButton) sendButton.disabled = false;
+            userInput.disabled = false;
+            if (userInput) userInput.focus();
         }
-        
-        if (authSection) {
-            authSection.classList.add('force-show');
-            authSection.classList.remove('force-hide');
-        }
-        
-        showLoginForm();
-        clearForms();
-        
-        console.log('UI update with classes completed');
     }
+    
+    // ==========================================
+    // REST OF EXISTING FUNCTIONS (Unchanged)
+    // ==========================================
     
     /**
-     * Clear all form fields
+     * Create a new chat session
      */
-    function clearForms() {
-        const forms = ['email', 'password', 'registerEmail', 'registerPassword', 'confirmPassword', 'registerName', 'confirmEmail', 'confirmationCode'];
-        forms.forEach(id => {
-            const element = document.getElementById(id);
-            if (element) element.value = '';
-        });
-    }
-    
-    /**
-     * Show error message
-     */
-    function showError(message) {
-        // You can implement a toast notification or alert
-        alert('Error: ' + message);
-    }
-    
-    /**
-     * Show success message
-     */
-    function showSuccess(message) {
-        // You can implement a toast notification or alert
-        alert('Success: ' + message);
-    }
-    
-    // === Chat Functions (same as before) ===
-    
     function createNewChat() {
         console.log('Creating new chat');
         
@@ -683,95 +764,9 @@ document.addEventListener('DOMContentLoaded', function() {
         return null;
     }
     
-    async function sendMessage() {
-        if (!userInput) return;
-        
-        const message = userInput.value.trim();
-        if (!message) return;
-        
-        console.log('Sending message:', message);
-        
-        addMessage(message, true);
-        userInput.value = '';
-        
-        const loadingIndicator = addLoadingIndicator();
-        
-        try {
-            if (sendButton) sendButton.disabled = true;
-            userInput.disabled = true;
-            
-            const followUpKeywords = ['example', 'more', 'explain', 'tell me', 'what about', 'can you', 'how about'];
-            const isFollowUp = followUpKeywords.some(keyword => message.toLowerCase().includes(keyword)) && message.length < 50;
-            
-            let queryToSend = message;
-            let contextualInfo = null;
-            
-            if (isFollowUp) {
-                contextualInfo = getConversationContext();
-                if (contextualInfo) {
-                    queryToSend = `${message} (continuing discussion about ${contextualInfo.concept} for ${contextualInfo.audience})`;
-                    console.log('Follow-up detected, enhanced query:', queryToSend);
-                }
-            }
-            
-            const data = await apiService.sendQuery(queryToSend, currentConversationId);
-            
-            if (isFollowUp && contextualInfo && (!data.concept || data.concept === 'predictive-model')) {
-                console.log('Preserving context for follow-up question');
-                data.concept = contextualInfo.concept;
-                data.audience = contextualInfo.audience;
-            }
-            
-            if (loadingIndicator) loadingIndicator.remove();
-            
-            addMessage(data.response, false, {
-                concept: data.concept,
-                audience: data.audience
-            });
-            
-            if (data.conversation_id && data.conversation_id !== currentConversationId) {
-                const oldId = currentConversationId;
-                const newId = data.conversation_id;
-                
-                if (chatSessions[oldId]) {
-                    chatSessions[newId] = chatSessions[oldId];
-                    chatSessions[newId].id = newId;
-                    delete chatSessions[oldId];
-                    currentConversationId = newId;
-                    saveChatSessions();
-                    updateChatList();
-                }
-            }
-            
-        } catch (error) {
-            console.error('Error sending message:', error);
-            
-            if (loadingIndicator) loadingIndicator.remove();
-            
-            let errorMessage = 'Sorry, there was an error processing your request.';
-            
-            if (error.message.includes('AI model is not available') || 
-                error.message.includes('AI service temporarily unavailable')) {
-                errorMessage = 'The AI service is not available. Please ensure the SageMaker endpoint is deployed and configured.';
-            } else if (error.message.includes('Failed to fetch')) {
-                errorMessage = 'Unable to connect to the server. Please check your connection and try again.';
-            }
-            
-            addMessage(errorMessage, false);
-        } finally {
-            if (sendButton) sendButton.disabled = false;
-            userInput.disabled = false;
-            if (userInput) userInput.focus();
-        }
-    }
-    
     function saveChatSessions() {
         try {
-            const userEmail = authService.getUserEmail();
-            const storageKey = userEmail ? `techTranslatorChats_${userEmail}` : 'techTranslatorChats_anonymous';
-            
-            localStorage.setItem(storageKey, JSON.stringify(chatSessions));
-            console.log(`Saved chat sessions for user: ${userEmail || 'anonymous'}`);
+            localStorage.setItem('techTranslatorChats', JSON.stringify(chatSessions));
         } catch (error) {
             console.warn('Could not save chat sessions to localStorage:', error);
         }
@@ -779,20 +774,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function loadChatSessions() {
         try {
-            const userEmail = authService.getUserEmail();
-            const storageKey = userEmail ? `techTranslatorChats_${userEmail}` : 'techTranslatorChats_anonymous';
-            
-            console.log(`Loading chat sessions for user: ${userEmail || 'anonymous'}`);
-            
-            const saved = localStorage.getItem(storageKey);
+            const saved = localStorage.getItem('techTranslatorChats');
             if (saved) {
                 const parsedSessions = JSON.parse(saved);
-                
-                // Clear existing sessions and load user-specific ones
-                chatSessions = {};
                 Object.assign(chatSessions, parsedSessions);
                 
-                // Update chat counter
                 const maxChatNumber = Object.values(chatSessions)
                     .map(chat => {
                         const match = chat.title.match(/Chat (\d+)/);
@@ -801,19 +787,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     .reduce((max, num) => Math.max(max, num), 0);
                 
                 chatCounter = maxChatNumber + 1;
-                
-                console.log(`Loaded ${Object.keys(chatSessions).length} chat sessions`);
                 updateChatList();
-            } else {
-                console.log('No saved chat sessions found for this user');
-                chatSessions = {};
-                chatCounter = 1;
             }
         } catch (error) {
             console.warn('Could not load chat sessions from localStorage:', error);
-            chatSessions = {};
-            chatCounter = 1;
         }
     }
-
 });
