@@ -1,8 +1,10 @@
 /**
- * Main application logic for TechTranslator
+ * Main application logic for TechTranslator - Fixed Version
  */
 document.addEventListener('DOMContentLoaded', function() {
-    // DOM Elements
+    console.log('DOM loaded - starting app');
+    
+    // DOM Elements - with null checks
     const authSection = document.getElementById('authSection');
     const chatSection = document.getElementById('chatSection');
     const loginForm = document.getElementById('loginForm');
@@ -22,48 +24,71 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Chat management
     let currentConversationId = null;
-    let chatSessions = {}; // Store chat sessions in memory
+    let chatSessions = {};
     let chatCounter = 1;
     let pageLoaded = false;
-
-    // Initialize UI - Skip auth for now and show chat directly
-    initializeUI();
-
-
-    window.addEventListener('load', function() {
+    
+    // Mark page as loaded after a short delay
+    setTimeout(() => {
         pageLoaded = true;
-        console.log('Page fully loaded');
-    });
+        console.log('Page ready for interactions');
+    }, 500);
     
-    // Event listeners for authentication (keeping mock auth structure)
-    showRegisterButton?.addEventListener('click', () => {
-        loginForm.style.display = 'none';
-        registerForm.style.display = 'block';
-    });
+    // Initialize UI - Show chat interface directly
+    initializeUI();
     
-    showLoginButton?.addEventListener('click', () => {
-        registerForm.style.display = 'none';
-        loginForm.style.display = 'block';
-    });
+    // Event listeners for authentication (keeping mock auth structure but with null checks)
+    if (showRegisterButton) {
+        showRegisterButton.addEventListener('click', () => {
+            if (loginForm && registerForm) {
+                loginForm.style.display = 'none';
+                registerForm.style.display = 'block';
+            }
+        });
+    }
     
-    loginButton?.addEventListener('click', handleLogin);
-    registerButton?.addEventListener('click', handleRegister);
-    logoutButton?.addEventListener('click', handleLogout);
+    if (showLoginButton) {
+        showLoginButton.addEventListener('click', () => {
+            if (registerForm && loginForm) {
+                registerForm.style.display = 'none';
+                loginForm.style.display = 'block';
+            }
+        });
+    }
+    
+    if (loginButton) loginButton.addEventListener('click', handleLogin);
+    if (registerButton) registerButton.addEventListener('click', handleRegister);
+    if (logoutButton) logoutButton.addEventListener('click', handleLogout);
     
     // Event listeners for chat
-    sendButton.addEventListener('click', sendMessage);
-    newChatButton.addEventListener('click', createNewChat);
+    if (sendButton) sendButton.addEventListener('click', sendMessage);
+    if (newChatButton) newChatButton.addEventListener('click', createNewChat);
     
-    userInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            sendMessage();
-        }
+    if (userInput) {
+        userInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    }
+    
+    // Example questions event listeners
+    document.querySelectorAll('.example-question').forEach(question => {
+        question.addEventListener('click', function() {
+            const questionText = this.getAttribute('data-question');
+            if (userInput) {
+                userInput.value = questionText;
+                userInput.focus();
+            }
+        });
     });
     
     /**
      * Initialize UI - Show chat interface directly
      */
     function initializeUI() {
+        console.log('Initializing UI');
+        
         // Show chat interface directly without authentication
         updateUIAfterAuth();
         
@@ -78,6 +103,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * Handle login (mock implementation)
      */
     async function handleLogin() {
+        console.log('Login clicked');
         const email = document.getElementById('email')?.value;
         const password = document.getElementById('password')?.value;
         
@@ -87,8 +113,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         try {
-            loginButton.disabled = true;
-            loginButton.innerHTML = '<span class="loading"></span> Logging in...';
+            if (loginButton) {
+                loginButton.disabled = true;
+                loginButton.innerHTML = '<span class="loading"></span> Logging in...';
+            }
             
             // Mock login - just update UI
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -97,8 +125,10 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             alert('Login failed: ' + error.message);
         } finally {
-            loginButton.disabled = false;
-            loginButton.innerHTML = 'Login';
+            if (loginButton) {
+                loginButton.disabled = false;
+                loginButton.innerHTML = 'Login';
+            }
         }
     }
     
@@ -106,6 +136,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * Handle registration (mock implementation)
      */
     async function handleRegister() {
+        console.log('Register clicked');
         const email = document.getElementById('registerEmail')?.value;
         const password = document.getElementById('registerPassword')?.value;
         const confirmPassword = document.getElementById('confirmPassword')?.value;
@@ -121,25 +152,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         try {
-            registerButton.disabled = true;
-            registerButton.innerHTML = '<span class="loading"></span> Registering...';
+            if (registerButton) {
+                registerButton.disabled = true;
+                registerButton.innerHTML = '<span class="loading"></span> Registering...';
+            }
             
             // Mock registration
             await new Promise(resolve => setTimeout(resolve, 1000));
             
             // Show login form after successful registration
-            registerForm.style.display = 'none';
-            loginForm.style.display = 'block';
+            if (registerForm && loginForm) {
+                registerForm.style.display = 'none';
+                loginForm.style.display = 'block';
+            }
             
             // Pre-fill email
-            document.getElementById('email').value = email;
+            const emailInput = document.getElementById('email');
+            if (emailInput) emailInput.value = email;
             
             alert('Registration successful! You can now log in.');
         } catch (error) {
             alert('Registration failed: ' + error.message);
         } finally {
-            registerButton.disabled = false;
-            registerButton.innerHTML = 'Register';
+            if (registerButton) {
+                registerButton.disabled = false;
+                registerButton.innerHTML = 'Register';
+            }
         }
     }
     
@@ -147,6 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * Handle logout
      */
     function handleLogout() {
+        console.log('Logout clicked');
         // Clear chat sessions and reset UI
         chatSessions = {};
         currentConversationId = null;
@@ -158,37 +197,50 @@ document.addEventListener('DOMContentLoaded', function() {
      * Update UI after successful authentication
      */
     function updateUIAfterAuth() {
-        if (authSection) authSection.style.display = 'none';
-        chatSection.style.display = 'block';
+        console.log('Updating UI after auth');
+        
+        // Only hide auth section if it exists
+        if (authSection) {
+            authSection.style.display = 'none';
+        }
+        
+        // Show chat section if it exists
+        if (chatSection) {
+            chatSection.style.display = 'block';
+        }
     }
     
     /**
      * Update UI after logout
      */
     function updateUIAfterLogout() {
-        if (authSection) authSection.style.display = 'block';
-        chatSection.style.display = 'none';
+        console.log('Updating UI after logout');
+        
+        if (authSection) {
+            authSection.style.display = 'block';
+        }
+        
+        if (chatSection) {
+            chatSection.style.display = 'none';
+        }
+        
         if (loginForm) loginForm.style.display = 'block';
         if (registerForm) registerForm.style.display = 'none';
         
         // Clear forms
-        const emailInput = document.getElementById('email');
-        const passwordInput = document.getElementById('password');
-        const registerEmailInput = document.getElementById('registerEmail');
-        const registerPasswordInput = document.getElementById('registerPassword');
-        const confirmPasswordInput = document.getElementById('confirmPassword');
-        
-        if (emailInput) emailInput.value = '';
-        if (passwordInput) passwordInput.value = '';
-        if (registerEmailInput) registerEmailInput.value = '';
-        if (registerPasswordInput) registerPasswordInput.value = '';
-        if (confirmPasswordInput) confirmPasswordInput.value = '';
+        const forms = ['email', 'password', 'registerEmail', 'registerPassword', 'confirmPassword'];
+        forms.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.value = '';
+        });
     }
     
     /**
      * Create a new chat session
      */
     function createNewChat() {
+        console.log('Creating new chat');
+        
         // Generate new conversation ID
         const newConversationId = generateConversationId();
         currentConversationId = newConversationId;
@@ -207,7 +259,9 @@ document.addEventListener('DOMContentLoaded', function() {
         chatCounter++;
         
         // Clear current chat display
-        messageContainer.innerHTML = '';
+        if (messageContainer) {
+            messageContainer.innerHTML = '';
+        }
         
         // Add welcome message
         addMessage("Hello! I'm TechTranslator. I can explain data science and machine learning concepts for insurance professionals. Try asking me about concepts like \"R-squared\", \"loss ratio\", or \"predictive models\". You can also specify your role (e.g., \"Explain R-squared to an underwriter\").", false);
@@ -222,20 +276,24 @@ document.addEventListener('DOMContentLoaded', function() {
         saveChatSessions();
         
         // Focus on input
-        userInput.focus();
+        if (userInput) userInput.focus();
     }
     
     /**
      * Switch to an existing chat
      */
     function switchToChat(conversationId) {
+        console.log('Switching to chat:', conversationId);
+        
         if (!chatSessions[conversationId]) return;
         
         currentConversationId = conversationId;
         const chatSession = chatSessions[conversationId];
         
         // Clear current chat display
-        messageContainer.innerHTML = '';
+        if (messageContainer) {
+            messageContainer.innerHTML = '';
+        }
         
         // Load messages from this chat session
         chatSession.messages.forEach(msg => {
@@ -254,7 +312,7 @@ document.addEventListener('DOMContentLoaded', function() {
         updateChatList();
         
         // Focus on input
-        userInput.focus();
+        if (userInput) userInput.focus();
     }
     
     /**
@@ -328,6 +386,8 @@ document.addEventListener('DOMContentLoaded', function() {
      * Add a message to the current chat
      */
     function addMessage(message, isUser, extraInfo = null) {
+        if (!messageContainer) return;
+        
         const messageDiv = document.createElement('div');
         messageDiv.className = isUser ? 'user-message' : 'bot-message';
         
@@ -372,23 +432,27 @@ document.addEventListener('DOMContentLoaded', function() {
             updateChatList();
         }
         
-        // Only auto-scroll if page is fully loaded and not during initial setup
+        // Auto-scroll to the bottom only if page is ready
         if (pageLoaded && chatContainer) {
             chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
+        }
     }
     
     /**
      * Add a loading indicator to the chat
      */
     function addLoadingIndicator() {
+        if (!messageContainer) return null;
+        
         const loadingDiv = document.createElement('div');
         loadingDiv.className = 'bot-message loading-message';
         loadingDiv.innerHTML = '<span class="loading"></span> Thinking...';
         messageContainer.appendChild(loadingDiv);
         
         // Auto-scroll to the bottom
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
         
         return loadingDiv;
     }
@@ -397,8 +461,12 @@ document.addEventListener('DOMContentLoaded', function() {
      * Send a message to the API
      */
     async function sendMessage() {
+        if (!userInput) return;
+        
         const message = userInput.value.trim();
         if (!message) return;
+        
+        console.log('Sending message:', message);
         
         // Add user message to chat
         addMessage(message, true);
@@ -408,14 +476,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const loadingIndicator = addLoadingIndicator();
         
         try {
-            sendButton.disabled = true;
+            if (sendButton) sendButton.disabled = true;
             userInput.disabled = true;
             
             // Call API - use the current conversation ID for follow-up context
             const data = await apiService.sendQuery(message, currentConversationId);
             
             // Remove loading indicator
-            loadingIndicator.remove();
+            if (loadingIndicator) loadingIndicator.remove();
             
             // Add bot response to chat with extra info
             addMessage(data.response, false, {
@@ -443,7 +511,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error sending message:', error);
             
             // Remove loading indicator
-            loadingIndicator.remove();
+            if (loadingIndicator) loadingIndicator.remove();
             
             // Show user-friendly error message
             let errorMessage = 'Sorry, there was an error processing your request.';
@@ -457,9 +525,9 @@ document.addEventListener('DOMContentLoaded', function() {
             
             addMessage(errorMessage, false);
         } finally {
-            sendButton.disabled = false;
+            if (sendButton) sendButton.disabled = false;
             userInput.disabled = false;
-            userInput.focus();
+            if (userInput) userInput.focus();
         }
     }
     
