@@ -137,7 +137,7 @@ body {
     overflow-y: auto;
     border-right: 1px solid #34495e;
     flex-shrink: 0;
-    display: block;
+    display: block !important; 
 }
 
 .sidebar h5 {
@@ -597,4 +597,20 @@ body {
 #backToLoginButton:hover {
     color: #495057;
     text-decoration: underline;
+}
+
+#chatSection {
+    display: flex !important;
+    flex-direction: row !important;
+}
+
+#chatSection .sidebar {
+    display: block !important;
+    flex-shrink: 0 !important;
+}
+
+#chatSection .main-chat {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 !important;
 }

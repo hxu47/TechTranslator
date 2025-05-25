@@ -373,12 +373,30 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateUIAfterAuth() {
         console.log('Updating UI after auth');
         
+        // Hide auth section
         if (authSection) {
             authSection.style.display = 'none';
         }
         
+        // Show chat section with proper display
         if (chatSection) {
-            chatSection.style.display = 'block';
+            chatSection.style.display = 'flex';  // Changed from 'block' to 'flex'
+            chatSection.style.flexDirection = 'row';
+        }
+        
+        // Ensure sidebar is visible
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) {
+            sidebar.style.display = 'block';
+            console.log('Sidebar made visible');
+        }
+        
+        // Ensure main chat is visible
+        const mainChat = document.querySelector('.main-chat');
+        if (mainChat) {
+            mainChat.style.display = 'flex';
+            mainChat.style.flexDirection = 'column';
+            console.log('Main chat made visible');
         }
     }
     
