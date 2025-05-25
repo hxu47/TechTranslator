@@ -244,60 +244,149 @@ def get_relevant_context(concept, audience, max_items=5):
         return []
 
 
-
-
+def is_follow_up_question(query, conversation_context):
+    """Enhanced follow-up detection with better logic"""
+    if not conversation_context:
+        return False
+    
+    query_lower = query.lower().strip()
+    
+    # Strong follow-up indicators
+    strong_follow_up_patterns = [
+        'example', 'give me an example', 'can you give', 'show me',
+        'what does it mean', 'what does that mean', 'explain that',
+        'tell me more', 'more about', 'elaborate', 'expand on',
+        'how about', 'what about', 'what if', 'suppose',
+        'why', 'how', 'when', 'where'
+    ]
+    
+    # Context continuation patterns
+    context_patterns = [
+        'if r-squared is', 'when r-squared', 'r-squared of',
+        'if loss ratio', 'when loss ratio', 'loss ratio of',
+        'if the model', 'when the model', 'the model',
+        'that means', 'it means', 'this means'
+    ]
+    
+    # Check for strong follow-up patterns
+    has_strong_follow_up = any(pattern in query_lower for pattern in strong_follow_up_patterns)
+    
+    # Check for context continuation (questions that build on the topic)
+    has_context_continuation = any(pattern in query_lower for pattern in context_patterns)
+    
+    # Check if it's a short question (likely follow-up)
+    is_short_question = len(query.split()) <= 12
+    
+    # Check if query does NOT contain full concept keywords (strong indicator of follow-up)
+    full_concept_keywords = [
+        'what is r-squared', 'explain r-squared', 'r-squared for',
+        'what is loss ratio', 'explain loss ratio', 'loss ratio for',
+        'what is predictive model', 'explain predictive model', 'predictive model for'
+    ]
+    has_full_concept_intro = any(keyword in query_lower for keyword in full_concept_keywords)
+    
+    # Decision logic
+    if has_strong_follow_up:
+        return True
+    elif has_context_continuation and is_short_question:
+        return True
+    elif is_short_question and not has_full_concept_intro:
+        return True
+    
+    return False
 
 def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunks, is_follow_up=False):
-    """FLAN-T5 optimized response generation with simple prompts"""
+    """Enhanced response generation with better prompting"""
     try:
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
         
-        # Get the best context chunk for this audience
+        # Create context from relevant chunks - prioritize audience-specific content
         audience_chunks = [chunk for chunk in relevant_chunks if chunk['item'].get('audience') == audience]
-        best_chunk = audience_chunks[0] if audience_chunks else (relevant_chunks[0] if relevant_chunks else None)
+        other_chunks = [chunk for chunk in relevant_chunks if chunk['item'].get('audience') != audience]
         
-        # Create VERY simple prompts that FLAN-T5 can handle
-        if is_follow_up and best_chunk:
-            context = best_chunk['item']['text'][:400]  # Keep context shorter
+        prioritized_chunks = audience_chunks + other_chunks
+        
+        context_text = ""
+        for chunk in prioritized_chunks[:3]:  # Use top 3 chunks
+            context_text += f"- {chunk['item']['text'][:400]}...\n"
+        
+        # Create more specific prompts
+        if is_follow_up and context_text.strip():
+            # For follow-ups, create very specific prompts based on the question type
+            if any(word in query.lower() for word in ['example', 'give me', 'show me']):
+                prompt = f"""You are explaining {concept.replace('-', ' ')} to an insurance {audience}. The user is asking for an example.
+
+Context about {concept.replace('-', ' ')}:
+{context_text}
+
+User's request: {query}
+
+Provide a specific, practical example of {concept.replace('-', ' ')} that an insurance {audience} would encounter in their work. Include numbers and realistic scenarios:"""
             
-            # Simple follow-up prompts based on question type
-            if any(word in query.lower() for word in ['example', 'give me']):
-                prompt = f"Context: {context}\n\nQuestion: Give a specific example of {concept.replace('-', ' ')} for insurance {audience}s.\n\nAnswer:"
-                
-            elif 'what does it mean' in query.lower() or 'means' in query.lower():
-                prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
-                
-            elif any(word in query.lower() for word in ['if ', 'when ', 'suppose']):
-                # For scenario questions like "If R-squared is 0"
-                prompt = f"Question: In insurance, {query.lower()}\n\nContext: {context}\n\nAnswer:"
-                
+            elif any(word in query.lower() for word in ['what does it mean', 'means', 'explain']):
+                prompt = f"""You are continuing to explain {concept.replace('-', ' ')} to an insurance {audience}.
+
+Context:
+{context_text}
+
+User's question: {query}
+
+Provide a clear explanation that builds on what was already discussed about {concept.replace('-', ' ')} for an insurance {audience}:"""
+            
+            elif 'if' in query.lower() or 'when' in query.lower():
+                prompt = f"""You are explaining {concept.replace('-', ' ')} scenarios to an insurance {audience}.
+
+Context:
+{context_text}
+
+User's scenario question: {query}
+
+Explain what this scenario means for an insurance {audience} in practical terms:"""
+            
             else:
-                # General follow-up - keep it very simple
-                prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
+                # General follow-up
+                prompt = f"""Continue explaining {concept.replace('-', ' ')} to an insurance {audience}.
+
+Previous context:
+{context_text}
+
+Follow-up question: {query}
+
+Provide a helpful response that builds on the previous discussion:"""
         
-        elif best_chunk:
-            # New question with context - use simple format
-            context = best_chunk['item']['text'][:400]
-            prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
-            
+        elif context_text.strip():
+            # For new questions with context
+            prompt = f"""Explain {concept.replace('-', ' ')} to an insurance {audience} based on this information:
+
+Context:
+{context_text}
+
+Question: {query}
+
+Provide a clear, professional explanation tailored for an insurance {audience}:"""
         else:
-            # No context - very simple prompt
-            prompt = f"Question: Explain {concept.replace('-', ' ')} for insurance {audience}s.\n\nAnswer:"
+            # Fallback prompt
+            prompt = f"""Explain {concept.replace('-', ' ')} to an insurance {audience}.
+
+Question: {query}
+
+Provide a clear, professional explanation:"""
         
-        # Simpler parameters for FLAN-T5
+        # Adjust parameters for better responses
         payload = {
             "inputs": prompt,
             "parameters": {
-                "max_new_tokens": 150,  # Shorter responses work better
-                "temperature": 0.3,     # Lower temperature for more focused responses
+                "max_new_tokens": 250,  # Increased for more detailed responses
+                "temperature": 0.6,     # Slightly lower for more focused responses
                 "do_sample": True,
-                "top_p": 0.8,
-                "repetition_penalty": 1.3,  # Higher to avoid repetition
+                "top_p": 0.85,         # Slightly lower for more focused responses
+                "repetition_penalty": 1.2,  # Higher to avoid repetition
             }
         }
         
-        logger.info(f"FLAN-T5 Simple Prompt: {prompt[:150]}...")
+        logger.info(f"Calling SageMaker with follow_up={is_follow_up}")
+        logger.info(f"Prompt preview: {prompt[:200]}...")
         
         # Call SageMaker endpoint
         response = sagemaker_runtime.invoke_endpoint(
@@ -322,103 +411,16 @@ def generate_response_with_sagemaker(query, concept_and_audience, relevant_chunk
         # Clean up the response
         generated_text = generated_text.strip()
         
-        # If response is too short or generic, use fallback
-        if not generated_text or len(generated_text) < 15 or generated_text.lower().startswith('the model'):
-            logger.warning("Using enhanced fallback for better response")
-            return create_smart_fallback_response(query, concept_and_audience, best_chunk, is_follow_up)
+        # Enhanced fallback with more specific responses
+        if not generated_text or len(generated_text) < 20:
+            logger.warning("SageMaker response too short, using enhanced fallback")
+            return create_enhanced_fallback_response(query, concept_and_audience, relevant_chunks, is_follow_up)
         
         return generated_text
         
     except Exception as e:
         logger.error(f"SageMaker generation error: {str(e)}")
-        return create_smart_fallback_response(query, concept_and_audience, relevant_chunks[0] if relevant_chunks else None, is_follow_up)
-
-def create_smart_fallback_response(query, concept_and_audience, best_chunk, is_follow_up=False):
-    """Create intelligent fallback responses using the knowledge base directly"""
-    concept = concept_and_audience['concept']
-    audience = concept_and_audience['audience']
-    query_lower = query.lower()
-    
-    if not best_chunk:
-        return f"I can explain {concept.replace('-', ' ')} concepts, but I need more specific information. Could you ask about a particular aspect?"
-    
-    chunk_text = best_chunk['item']['text']
-    chunk_type = best_chunk['item'].get('type', 'general')
-    
-    # Handle specific question types with direct knowledge base responses
-    if 'example' in query_lower:
-        # Look for example chunks or create examples from context
-        if chunk_type == 'example':
-            return chunk_text
-        else:
-            # Create specific examples based on concept
-            if concept == 'r-squared':
-                if audience == 'underwriter':
-                    return "Here's an example for underwriters: If your pricing model has an R-squared of 0.75, it means 75% of the premium variation is explained by factors like driver age, vehicle type, and claims history. The remaining 25% represents unexplained variation - possibly missing risk factors that competitors might be capturing."
-                elif audience == 'actuary':
-                    return "Example for actuaries: When comparing GLMs for homeowners insurance, Model A has R-squared of 0.68 while Model B has 0.72. Model B explains 4% more variance in loss costs, suggesting better factor selection. However, check if the improvement is statistically significant and not due to overfitting."
-                else:
-                    return "Example: An auto insurance pricing model with R-squared of 0.80 means that 80% of premium differences between policies are explained by rating factors like age, location, and driving record. Higher R-squared generally indicates a more predictive model."
-                    
-            elif concept == 'loss-ratio':
-                if audience == 'underwriter':
-                    return "Example for underwriters: Your book shows a 75% loss ratio. For every $100 in premiums, you're paying $75 in claims. With a 25% expense ratio, your combined ratio is 100% - you're breaking even on underwriting. Consider rate increases or tighter guidelines."
-                elif audience == 'executive':
-                    return "Example for executives: Q3 loss ratio increased from 62% to 68%. This 6-point increase on $50M premiums means an additional $3M in claims costs, directly impacting profitability. Root causes might include claims inflation, adverse selection, or competitive pricing pressure."
-                else:
-                    return "Example: A commercial auto line with 85% loss ratio and 20% expense ratio has a 105% combined ratio, indicating a 5% underwriting loss. This means the insurer pays out more in claims and expenses than it collects in premiums."
-            
-            elif concept == 'predictive-model':
-                return "Example: A fraud detection model flags 5% of claims for investigation, catching 80% of fraudulent claims while minimizing false positives. This helps reduce loss ratios by 2-3 percentage points compared to random sampling."
-    
-    elif any(phrase in query_lower for phrase in ['what does it mean', 'means', 'if ', 'when ']):
-        # For scenario/meaning questions, be very specific
-        if 'if r-squared is 0' in query_lower:
-            return f"If R-squared is 0, it means your pricing model explains none of the variation in {['claims costs', 'premiums', 'losses'][0]}. Essentially, your rating factors (age, location, etc.) have no predictive power - you might as well price everyone the same. This indicates you need better rating factors or a different modeling approach."
-        
-        elif 'if r-squared is 1' in query_lower:
-            return f"If R-squared is 1, your model perfectly predicts {['claims', 'outcomes', 'results'][0]} - which is theoretically impossible in insurance due to random variation. In practice, R-squared above 0.9 might indicate overfitting, where your model memorized training data but won't perform well on new policies."
-        
-        elif 'loss ratio' in query_lower and any(word in query_lower for word in ['high', 'low', 'good', 'bad']):
-            return f"For insurance {audience}s: Loss ratios below 60% are typically very good, 60-75% are acceptable, 75-85% need attention, and above 85% indicate problems. However, this varies by line of business - workers' comp might target 65% while personal auto might target 70%."
-    
-    # Default: use the best available chunk, formatted for the audience
-    if chunk_type == 'audience' and best_chunk['item'].get('audience') == audience:
-        # Perfect match - return the audience-specific content
-        return chunk_text
-    else:
-        # General content - add audience context
-        return f"For insurance {audience}s: {chunk_text[:300]}..."
-
-# Also update the follow-up detection to be more precise
-def is_follow_up_question(query, conversation_context):
-    """Simplified follow-up detection optimized for FLAN-T5"""
-    if not conversation_context:
-        return False
-    
-    query_lower = query.lower().strip()
-    
-    # Very specific follow-up patterns that work well with simple prompts
-    definite_follow_ups = [
-        'example', 'give me an example', 'can you give me', 'show me',
-        'what does it mean', 'what does that mean', 'what if', 'if ',
-        'why', 'how', 'when', 'where', 'tell me more', 'more about'
-    ]
-    
-    # Short questions are likely follow-ups
-    is_short = len(query.split()) <= 8
-    
-    # Contains follow-up patterns
-    has_follow_up_pattern = any(pattern in query_lower for pattern in definite_follow_ups)
-    
-    # Doesn't contain new concept introduction
-    new_concept_patterns = ['what is', 'explain ', 'tell me about', 'describe']
-    has_new_concept = any(pattern in query_lower for pattern in new_concept_patterns)
-    
-    # Decision: follow-up if it has follow-up patterns OR is short without new concept introduction
-    return has_follow_up_pattern or (is_short and not has_new_concept)
-
-
+        return create_enhanced_fallback_response(query, concept_and_audience, relevant_chunks, is_follow_up)
 
 def create_enhanced_fallback_response(query, concept_and_audience, relevant_chunks, is_follow_up=False):
     """Create more specific fallback responses"""
@@ -451,7 +453,6 @@ def create_enhanced_fallback_response(query, concept_and_audience, relevant_chun
         response = f"**{concept} for Insurance {audience.title()}s**\n\n"
         response += best_chunk['item']['text'][:400]
         return response
-
 
 def create_fallback_response(concept_and_audience, relevant_chunks):
     """Create a structured fallback response using retrieved context"""
