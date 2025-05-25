@@ -416,52 +416,23 @@ document.addEventListener('DOMContentLoaded', function() {
      * Update UI after logout
      */
     function updateUIAfterLogout() {
-        console.log('Updating UI after logout - FORCEFUL VERSION');
+        console.log('Updating UI after logout - WITH CLASSES');
         
-        // Force hide chat section with multiple methods
+        // Remove classes and add new ones
         if (chatSection) {
-            console.log('Hiding chat section');
-            chatSection.style.display = 'none !important';
-            chatSection.style.visibility = 'hidden';
-            chatSection.setAttribute('style', 'display: none !important;');
-        } else {
-            console.log('ERROR: chatSection not found');
+            chatSection.classList.add('force-hide');
+            chatSection.classList.remove('force-show');
         }
         
-        // Force show auth section with multiple methods
         if (authSection) {
-            console.log('Showing auth section');
-            authSection.style.display = 'block !important';
-            authSection.style.visibility = 'visible';
-            authSection.setAttribute('style', 'display: block !important;');
-        } else {
-            console.log('ERROR: authSection not found');
+            authSection.classList.add('force-show');
+            authSection.classList.remove('force-hide');
         }
         
-        // Double-check the elements exist
-        const authCheck = document.getElementById('authSection');
-        const chatCheck = document.getElementById('chatSection');
-        
-        console.log('Auth section exists:', !!authCheck);
-        console.log('Chat section exists:', !!chatCheck);
-        
-        if (authCheck) {
-            authCheck.style.display = 'block';
-            console.log('Auth section forced visible');
-        }
-        
-        if (chatCheck) {
-            chatCheck.style.display = 'none';
-            console.log('Chat section forced hidden');
-        }
-        
-        // Show login form specifically
         showLoginForm();
-        console.log('Login form should now be visible');
-        
-        // Clear forms
         clearForms();
-        console.log('Forms cleared');
+        
+        console.log('UI update with classes completed');
     }
     
     /**

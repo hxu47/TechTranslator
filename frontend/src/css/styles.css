@@ -614,3 +614,15 @@ body {
     flex-direction: column !important;
     flex: 1 !important;
 }
+
+#authSection.force-show {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+#chatSection.force-hide {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+}
