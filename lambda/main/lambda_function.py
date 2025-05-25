@@ -1,12 +1,12 @@
-# main lambda - EMAIL-BASED USER ID VERSION
+# main lambda - IMPROVED PROMPT ENGINEERING VERSION
 import json
 import boto3
 import os
 import uuid
-import re
-import hashlib
 from datetime import datetime
 import logging
+import re
+import hashlib
 
 # Configure logging
 logger = logging.getLogger()
@@ -29,102 +29,11 @@ CORS_HEADERS = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
-    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-User-Context'
+    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
 }
 
-def is_valid_email(email):
-    """Simple email validation"""
-    pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+
-    return re.match(pattern, email) is not None
-
-def extract_user_email(event):
-    """
-    Extract user email from various sources with enhanced fallback logic
-    """
-    # Method 1: Try Cognito authorizer (if authentication enabled)
-    if event.get('requestContext') and event.get('requestContext').get('authorizer'):
-        authorizer = event.get('requestContext').get('authorizer')
-        if 'claims' in authorizer:
-            email = authorizer.get('claims', {}).get('email')
-            if email and is_valid_email(email):
-                logger.info(f"User email from Cognito: {email}")
-                return email.lower().strip()
-    
-    # Method 2: Try custom headers
-    headers = event.get('headers', {})
-    user_context = headers.get('X-User-Context') or headers.get('x-user-context')
-    
-    if user_context and is_valid_email(user_context):
-        logger.info(f"User email from header: {user_context}")
-        return user_context.lower().strip()
-    
-    # Method 3: Try request body
-    try:
-        body = json.loads(event.get('body', '{}')) if event.get('body') else {}
-        body_user_context = body.get('user_context')
-        if body_user_context and is_valid_email(body_user_context):
-            logger.info(f"User email from body: {body_user_context}")
-            return body_user_context.lower().strip()
-    except:
-        pass
-    
-    # Method 4: Generate session-based email from IP and User-Agent
-    source_ip = event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
-    user_agent = headers.get('User-Agent', headers.get('user-agent', 'unknown'))
-    
-    if source_ip != 'unknown':
-        # Create a stable session ID for anonymous users
-        session_string = f"{source_ip}_{user_agent}"
-        session_hash = hashlib.md5(session_string.encode()).hexdigest()[:12]
-        session_email = f"session_{session_hash}@anonymous.local"
-        logger.info(f"Generated session-based email: {session_email}")
-        return session_email
-    
-    # Final fallback
-    fallback_email = 'anonymous@anonymous.local'
-    logger.info(f"Using fallback email: {fallback_email}")
-    return fallback_email
-
-def extract_user_info(user_email):
-    """Extract useful information from user email"""
-    if '@anonymous.local' in user_email:
-        return {
-            'email': user_email,
-            'domain': 'anonymous',
-            'is_company': False,
-            'display_name': 'Anonymous User',
-            'user_type': 'anonymous'
-        }
-    
-    parts = user_email.split('@')
-    if len(parts) != 2:
-        return {
-            'email': user_email, 
-            'domain': 'unknown', 
-            'is_company': False,
-            'display_name': 'Unknown User',
-            'user_type': 'unknown'
-        }
-    
-    local_part, domain = parts
-    
-    # Extract display name from local part
-    display_name = local_part.replace('.', ' ').replace('_', ' ').title()
-    
-    # Determine if it's a company email
-    personal_domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com']
-    is_company = domain.lower() not in personal_domains
-    
-    return {
-        'email': user_email,
-        'domain': domain,
-        'is_company': is_company,
-        'display_name': display_name,
-        'user_type': 'company' if is_company else 'personal'
-    }
-
 def lambda_handler(event, context):
-    """Main Lambda function with email-based user identification"""
+    """Main Lambda function - Enhanced with better prompt engineering"""
     try:
         logger.info(f"Received event: {json.dumps(event)}")
         
@@ -133,18 +42,35 @@ def lambda_handler(event, context):
         query = body.get('query', '')
         conversation_id = body.get('conversation_id')
         
-        # Extract user email with enhanced logic
-        user_email = extract_user_email(event)
-        user_info = extract_user_info(user_email)
-        
-        logger.info(f"Processing query for user: {user_email} ({user_info['display_name']}) - Type: {user_info['user_type']}")
-        
+        # Extract user ID from Cognito authorizer if available
+        user_id = 'anonymous@anonymous.local'
+        if event.get('requestContext') and event.get('requestContext').get('authorizer'):
+            # Try to get email from Cognito claims
+            email = event.get('requestContext').get('authorizer').get('claims', {}).get('email')
+            if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+                user_id = email.lower().strip()
+                logger.info(f"User email from login: {user_id}")
+            else:
+                # Fallback to sub if email not available
+                sub = event.get('requestContext').get('authorizer').get('claims', {}).get('sub', 'anonymous')
+                user_id = f"{sub}@cognito.local"
+                logger.info(f"Using Cognito sub as email: {user_id}")
+        else:
+            # Create session-based email for non-logged users
+            source_ip = event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
+            if source_ip != 'unknown':
+                session_hash = hashlib.md5(source_ip.encode()).hexdigest()[:12]
+                user_id = f"guest_{session_hash}@anonymous.local"
+                logger.info(f"Session email for non-logged user: {user_id}")
+
         if not query:
             return {
                 'statusCode': 400,
                 'headers': CORS_HEADERS,
                 'body': json.dumps({'error': 'Query is required'})
             }
+        
+        logger.info(f"Processing query: {query} for user: {user_id}")
         
         # Check if SageMaker endpoint is configured
         if not SAGEMAKER_ENDPOINT or SAGEMAKER_ENDPOINT in ['', 'NOT_CONFIGURED', 'PLACEHOLDER']:
@@ -161,7 +87,7 @@ def lambda_handler(event, context):
             }
         
         # Get conversation history to check for context
-        conversation_context = get_conversation_context(user_email, conversation_id) if conversation_id else None
+        conversation_context = get_conversation_context(user_id, conversation_id) if conversation_id else None
         logger.info(f"Conversation context: {conversation_context}")
         
         # Enhanced follow-up detection
@@ -189,8 +115,7 @@ def lambda_handler(event, context):
                     'response': "I can help explain data science and machine learning concepts used in insurance, such as R-squared, loss ratio, and predictive models. Could you please ask about one of these specific topics?",
                     'concept': 'unknown',
                     'audience': audience,
-                    'conversation_id': conversation_id or str(uuid.uuid4()),
-                    'user_info': user_info
+                    'conversation_id': conversation_id or str(uuid.uuid4())
                 })
             }
         
@@ -209,12 +134,12 @@ def lambda_handler(event, context):
         )
         logger.info("Generated response using enhanced prompts")
         
-        # Store conversation with email as user_id
+        # Store conversation
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
         
-        store_conversation(user_email, conversation_id, query, response, concept, audience)
-        logger.info(f"Stored conversation: {conversation_id} for user: {user_email}")
+        store_conversation(user_id, conversation_id, query, response, concept, audience)
+        logger.info(f"Stored conversation: {conversation_id}")
         
         return {
             'statusCode': 200,
@@ -224,13 +149,7 @@ def lambda_handler(event, context):
                 'response': response,
                 'concept': concept,
                 'audience': audience,
-                'conversation_id': conversation_id,
-                'user_info': {
-                    'email': user_email,
-                    'display_name': user_info['display_name'],
-                    'domain': user_info['domain'],
-                    'user_type': user_info['user_type']
-                }
+                'conversation_id': conversation_id
             })
         }
     except Exception as e:
@@ -373,45 +292,119 @@ def get_relevant_context_enhanced(concept, audience, query, max_items=3):
         logger.error(f"Error getting enhanced context: {str(e)}")
         return []
 
+# Quick fix for your main Lambda function - replace the problematic functions
+
+def create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
+                                      is_follow_up=False, follow_up_type=None):
+    """Create clean fallback responses without redundant titles"""
+    concept = concept_and_audience['concept'].replace('-', ' ').title()
+    audience = concept_and_audience['audience']
+    
+    if not relevant_chunks:
+        return f"I'd be happy to explain {concept} for insurance {audience}s. Could you ask about a specific aspect you'd like to understand?"
+    
+    # Get the best matching chunk
+    best_chunk = relevant_chunks[0]['item']
+    
+    # Create clean response without redundant titles
+    if is_follow_up and follow_up_type:
+        if follow_up_type == 'example':
+            return create_example_response(concept, audience, best_chunk)
+        elif follow_up_type == 'scenario':
+            return create_scenario_response(concept, audience, best_chunk, query)
+        else:
+            # Just return the clean content without extra formatting
+            clean_text = clean_chunk_text(best_chunk['text'])
+            return clean_text[:400] + ("..." if len(clean_text) > 400 else "")
+    else:
+        # Initial explanation - CLEAN VERSION (no redundant titles)
+        clean_text = clean_chunk_text(best_chunk.get('text', 'Information not available'))
+        
+        # Just return the content directly - no extra title formatting
+        response = clean_text[:400] + ("..." if len(clean_text) > 400 else "")
+        
+        # Add audience-specific context if the response is too generic
+        if len(response) < 100:  # Only add context if response is very short
+            if audience == 'underwriter':
+                response += " This directly impacts your risk assessment and pricing decisions."
+            elif audience == 'actuary':
+                response += " Consider this in your model validation and regulatory reporting."
+            elif audience == 'executive':
+                response += " This affects your competitive positioning and profitability."
+        
+        return response
+
+def clean_chunk_text(text):
+    """Clean up chunk text by removing ALL redundant prefixes and formatting"""
+    if not text:
+        return ""
+    
+    # Remove the problematic prefixes that are creating the issue
+    prefixes_to_remove = [
+        "Action guidance: ",
+        "**Loss Ratio for Insurance Executives** ",
+        "**Loss Ratio for Insurance Underwriters** ",
+        "**Loss Ratio for Insurance Actuaries** ",
+        "**R-squared for Insurance Executives** ",
+        "**R-squared for Insurance Underwriters** ", 
+        "**R-squared for Insurance Actuaries** ",
+        "**Predictive Model for Insurance Executives** ",
+        "**Predictive Model for Insurance Underwriters** ",
+        "**Predictive Model for Insurance Actuaries** ",
+    ]
+    
+    cleaned_text = text
+    for prefix in prefixes_to_remove:
+        if cleaned_text.startswith(prefix):
+            cleaned_text = cleaned_text[len(prefix):].strip()
+            break
+    
+    # Remove any remaining markdown bold formatting
+    cleaned_text = cleaned_text.replace("**", "")
+    
+    # Remove double spaces and clean up
+    cleaned_text = " ".join(cleaned_text.split())
+    
+    return cleaned_text
+
+# Also update the FLAN-T5 response generation to be cleaner
 def generate_response_with_enhanced_prompts(query, concept_and_audience, relevant_chunks, 
                                           is_follow_up=False, follow_up_type=None, conversation_context=None):
-    """Enhanced response generation with FLAN-T5 optimized prompts"""
+    """Enhanced response generation - CLEAN VERSION"""
     try:
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
         concept_display = concept.replace('-', ' ').title()
         
-        # Build context from relevant chunks (optimized for FLAN-T5)
+        # Build clean context from relevant chunks
         context_text = ""
         if relevant_chunks:
-            # Prioritize audience-specific content
-            for chunk in relevant_chunks[:2]:  # Only top 2 for FLAN-T5
+            for chunk in relevant_chunks[:2]:
                 item_text = chunk['item']['text']
-                # Truncate long text to keep context manageable
+                # Clean the text before using it in prompts
+                item_text = clean_chunk_text(item_text)
                 if len(item_text) > 200:
                     item_text = item_text[:200] + "..."
                 context_text += f"{item_text}\n\n"
         
-        # Generate role-specific, instruction-based prompts for FLAN-T5
+        # Generate prompts
         if is_follow_up and follow_up_type:
             prompt = create_follow_up_prompt(query, concept_display, audience, follow_up_type, 
                                            context_text, conversation_context)
         else:
             prompt = create_initial_prompt(query, concept_display, audience, context_text)
         
-        # FLAN-T5 optimized parameters
+        # FLAN-T5 parameters
         payload = {
             "inputs": prompt,
             "parameters": {
-                "max_new_tokens": 200,  # Reasonable length for professional responses
-                "temperature": 0.4,     # Lower for more focused responses
+                "max_new_tokens": 200,
+                "temperature": 0.4,
                 "do_sample": True,
                 "top_p": 0.9,
                 "repetition_penalty": 1.15,
             }
         }
-        
-        logger.info(f"Calling FLAN-T5 with prompt type: {'follow_up_' + follow_up_type if is_follow_up else 'initial'}")
         
         # Call SageMaker endpoint
         response = sagemaker_runtime.invoke_endpoint(
@@ -422,7 +415,7 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
         
         result = json.loads(response['Body'].read().decode())
         
-        # Handle FLAN-T5 response format
+        # Handle response format
         if isinstance(result, list) and len(result) > 0:
             if isinstance(result[0], dict):
                 generated_text = result[0].get('generated_text', '')
@@ -434,18 +427,17 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
             generated_text = str(result)
         
         # Clean up the response
-        generated_text = generated_text.strip()
+        generated_text = clean_chunk_text(generated_text.strip())
         
-        # Enhanced fallback with better responses
+        # Use fallback if response is too short
         if not generated_text or len(generated_text) < 30:
-            logger.warning("FLAN-T5 response too short, using enhanced fallback")
             return create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                                      is_follow_up, follow_up_type)
         
         return generated_text
         
     except Exception as e:
-        logger.error(f"Enhanced prompt generation error: {str(e)}")
+        logger.error(f"Response generation error: {str(e)}")
         return create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                                  is_follow_up, follow_up_type)
 
@@ -598,40 +590,6 @@ Implementation guidance:"""
     
     return follow_up_prompts.get(follow_up_type, follow_up_prompts['elaboration'])
 
-def create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
-                                      is_follow_up=False, follow_up_type=None):
-    """Create structured fallback responses when FLAN-T5 fails"""
-    concept = concept_and_audience['concept'].replace('-', ' ').title()
-    audience = concept_and_audience['audience']
-    
-    if not relevant_chunks:
-        return f"I'd be happy to explain {concept} for insurance {audience}s. Could you ask about a specific aspect you'd like to understand?"
-    
-    # Get the best matching chunk
-    best_chunk = relevant_chunks[0]['item']
-    
-    # Create structured response based on follow-up type
-    if is_follow_up and follow_up_type:
-        if follow_up_type == 'example':
-            return create_example_response(concept, audience, best_chunk)
-        elif follow_up_type == 'scenario':
-            return create_scenario_response(concept, audience, best_chunk, query)
-        else:
-            return f"**{concept} for {audience.title()}s**\n\n{best_chunk['text'][:300]}..."
-    else:
-        # Initial explanation
-        response = f"**{concept} for Insurance {audience.title()}s**\n\n"
-        response += best_chunk.get('text', 'Information not available')[:400]
-        
-        # Add call to action
-        if audience == 'underwriter':
-            response += "\n\nFor underwriters, this directly impacts your risk assessment and pricing decisions."
-        elif audience == 'actuary':
-            response += "\n\nAs an actuary, consider this in your model validation and regulatory reporting."
-        elif audience == 'executive':
-            response += "\n\nThis metric affects your competitive positioning and profitability."
-        
-        return response
 
 def create_example_response(concept, audience, chunk):
     """Create example-focused responses"""
@@ -675,7 +633,7 @@ def create_scenario_response(concept, audience, chunk, query):
     return f"In that scenario with {concept}: {chunk['text'][:250]}..."
 
 # Keep existing helper functions
-def get_conversation_context(user_email, conversation_id):
+def get_conversation_context(user_id, conversation_id):
     """Get the last concept/audience from conversation history"""
     if not conversation_id:
         return None
@@ -683,7 +641,7 @@ def get_conversation_context(user_email, conversation_id):
     try:
         payload = {
             'action': 'get',
-            'user_id': user_email,  # Using email as user_id
+            'user_id': user_id,
             'conversation_id': conversation_id
         }
         
@@ -711,12 +669,12 @@ def get_conversation_context(user_email, conversation_id):
         logger.error(f"Error getting conversation context: {str(e)}")
         return None
 
-def store_conversation(user_email, conversation_id, query, response, concept, audience):
+def store_conversation(user_id, conversation_id, query, response, concept, audience):
     """Store conversation in DynamoDB via the Conversation Lambda"""
     try:
         payload = {
             'action': 'store',
-            'user_id': user_email,  # Using email as user_id
+            'user_id': user_id,
             'conversation_id': conversation_id,
             'query': query,
             'response': response,
@@ -733,4 +691,4 @@ def store_conversation(user_email, conversation_id, query, response, concept, au
         return json.loads(response['Payload'].read())
     except Exception as e:
         logger.error(f"Error storing conversation: {str(e)}")
-        return
+        return None
