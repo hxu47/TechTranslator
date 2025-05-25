@@ -274,9 +274,78 @@ def get_relevant_context_enhanced(concept, audience, query, max_items=3):
         logger.error(f"Error getting enhanced context: {str(e)}")
         return []
 
+# Fixed version of the response generation function in your main Lambda
+
+def create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
+                                      is_follow_up=False, follow_up_type=None):
+    """Create structured fallback responses when FLAN-T5 fails - FIXED VERSION"""
+    concept = concept_and_audience['concept'].replace('-', ' ').title()
+    audience = concept_and_audience['audience']
+    
+    if not relevant_chunks:
+        return f"I'd be happy to explain {concept} for insurance {audience}s. Could you ask about a specific aspect you'd like to understand?"
+    
+    # Get the best matching chunk
+    best_chunk = relevant_chunks[0]['item']
+    
+    # Create structured response based on follow-up type
+    if is_follow_up and follow_up_type:
+        if follow_up_type == 'example':
+            return create_example_response(concept, audience, best_chunk)
+        elif follow_up_type == 'scenario':
+            return create_scenario_response(concept, audience, best_chunk, query)
+        else:
+            # Clean up the chunk text - remove redundant prefixes
+            clean_text = clean_chunk_text(best_chunk['text'])
+            return f"**{concept} for {audience.title()}s**\n\n{clean_text[:300]}..."
+    else:
+        # Initial explanation - FIXED VERSION
+        clean_text = clean_chunk_text(best_chunk.get('text', 'Information not available'))
+        
+        response = f"**{concept} for Insurance {audience.title()}s**\n\n{clean_text[:400]}"
+        
+        # Add audience-specific call to action (without redundant info)
+        if audience == 'underwriter':
+            response += "\n\nThis directly impacts your risk assessment and pricing decisions."
+        elif audience == 'actuary':
+            response += "\n\nConsider this in your model validation and regulatory reporting."
+        elif audience == 'executive':
+            response += "\n\nThis affects your competitive positioning and profitability."
+        
+        return response
+
+def clean_chunk_text(text):
+    """Clean up chunk text by removing redundant prefixes and formatting"""
+    if not text:
+        return ""
+    
+    # Remove common prefixes that create awkward formatting
+    prefixes_to_remove = [
+        "Action guidance: ",
+        "**Loss Ratio for Insurance Executives** ",
+        "**R-squared for Insurance Executives** ",
+        "**Predictive Model for Insurance Executives** ",
+        "**Loss Ratio for Insurance Underwriters** ",
+        "**R-squared for Insurance Underwriters** ",
+        "**Loss Ratio for Insurance Actuaries** ",
+        "**R-squared for Insurance Actuaries** "
+    ]
+    
+    cleaned_text = text
+    for prefix in prefixes_to_remove:
+        if cleaned_text.startswith(prefix):
+            cleaned_text = cleaned_text[len(prefix):].strip()
+            break
+    
+    # Also clean up any remaining markdown formatting issues
+    cleaned_text = cleaned_text.replace("**", "").strip()
+    
+    return cleaned_text
+
+# Also update the main response generation function
 def generate_response_with_enhanced_prompts(query, concept_and_audience, relevant_chunks, 
                                           is_follow_up=False, follow_up_type=None, conversation_context=None):
-    """Enhanced response generation with FLAN-T5 optimized prompts"""
+    """Enhanced response generation with FLAN-T5 optimized prompts - FIXED VERSION"""
     try:
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
@@ -285,9 +354,10 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
         # Build context from relevant chunks (optimized for FLAN-T5)
         context_text = ""
         if relevant_chunks:
-            # Prioritize audience-specific content
             for chunk in relevant_chunks[:2]:  # Only top 2 for FLAN-T5
                 item_text = chunk['item']['text']
+                # Clean the text before using it
+                item_text = clean_chunk_text(item_text)
                 # Truncate long text to keep context manageable
                 if len(item_text) > 200:
                     item_text = item_text[:200] + "..."
@@ -304,8 +374,8 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
         payload = {
             "inputs": prompt,
             "parameters": {
-                "max_new_tokens": 200,  # Reasonable length for professional responses
-                "temperature": 0.4,     # Lower for more focused responses
+                "max_new_tokens": 200,
+                "temperature": 0.4,
                 "do_sample": True,
                 "top_p": 0.9,
                 "repetition_penalty": 1.15,
@@ -343,13 +413,15 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
             return create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                                      is_follow_up, follow_up_type)
         
-        return generated_text
+        # Clean the final response too
+        return clean_chunk_text(generated_text)
         
     except Exception as e:
         logger.error(f"Enhanced prompt generation error: {str(e)}")
         return create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                                  is_follow_up, follow_up_type)
 
+                                                 
 def create_initial_prompt(query, concept_display, audience, context_text):
     """Create optimized initial explanation prompts for FLAN-T5"""
     
@@ -499,40 +571,6 @@ Implementation guidance:"""
     
     return follow_up_prompts.get(follow_up_type, follow_up_prompts['elaboration'])
 
-def create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
-                                      is_follow_up=False, follow_up_type=None):
-    """Create structured fallback responses when FLAN-T5 fails"""
-    concept = concept_and_audience['concept'].replace('-', ' ').title()
-    audience = concept_and_audience['audience']
-    
-    if not relevant_chunks:
-        return f"I'd be happy to explain {concept} for insurance {audience}s. Could you ask about a specific aspect you'd like to understand?"
-    
-    # Get the best matching chunk
-    best_chunk = relevant_chunks[0]['item']
-    
-    # Create structured response based on follow-up type
-    if is_follow_up and follow_up_type:
-        if follow_up_type == 'example':
-            return create_example_response(concept, audience, best_chunk)
-        elif follow_up_type == 'scenario':
-            return create_scenario_response(concept, audience, best_chunk, query)
-        else:
-            return f"**{concept} for {audience.title()}s**\n\n{best_chunk['text'][:300]}..."
-    else:
-        # Initial explanation
-        response = f"**{concept} for Insurance {audience.title()}s**\n\n"
-        response += best_chunk.get('text', 'Information not available')[:400]
-        
-        # Add call to action
-        if audience == 'underwriter':
-            response += "\n\nFor underwriters, this directly impacts your risk assessment and pricing decisions."
-        elif audience == 'actuary':
-            response += "\n\nAs an actuary, consider this in your model validation and regulatory reporting."
-        elif audience == 'executive':
-            response += "\n\nThis metric affects your competitive positioning and profitability."
-        
-        return response
 
 def create_example_response(concept, audience, chunk):
     """Create example-focused responses"""
