@@ -163,7 +163,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('Login successful');
                 updateUIAfterAuth();
                 loadUserData();
-                showSuccess('Login successful!');
+                //showSuccess('Login successful!');
             } else if (result.challenge) {
                 showError(result.message || 'Additional authentication required');
                 // Handle challenges if needed
@@ -383,16 +383,19 @@ document.addEventListener('DOMContentLoaded', function() {
      * Update UI after successful authentication
      */
     function updateUIAfterAuth() {
-        console.log('Updating UI after auth');
+        console.log('Updating UI after auth - WITH CLASSES');
         
-        // Hide auth section
+        // Remove classes and add new ones
         if (authSection) {
+            authSection.classList.add('force-hide');
+            authSection.classList.remove('force-show');
             authSection.style.display = 'none';
         }
         
-        // Show chat section with proper display
         if (chatSection) {
-            chatSection.style.display = 'flex';  // Changed from 'block' to 'flex'
+            chatSection.classList.add('force-show');
+            chatSection.classList.remove('force-hide');
+            chatSection.style.display = 'flex';
             chatSection.style.flexDirection = 'row';
         }
         
@@ -403,15 +406,10 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Sidebar made visible');
         }
         
-        // Ensure main chat is visible
-        const mainChat = document.querySelector('.main-chat');
-        if (mainChat) {
-            mainChat.style.display = 'flex';
-            mainChat.style.flexDirection = 'column';
-            console.log('Main chat made visible');
-        }
+        console.log('UI update after auth completed');
     }
-    
+
+
     /**
      * Update UI after logout
      */

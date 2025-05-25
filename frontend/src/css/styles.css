@@ -626,3 +626,16 @@ body {
     visibility: hidden !important;
     opacity: 0 !important;
 }
+
+#chatSection.force-show {
+    display: flex !important;
+    flex-direction: row !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+#authSection.force-hide {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+}
