@@ -37,31 +37,59 @@ def lambda_handler(event, context):
     try:
         logger.info(f"Received event: {json.dumps(event)}")
         
+        #############################
+        #############################
         # Parse request body
         body = json.loads(event.get('body', '{}')) if event.get('body') else {}
         query = body.get('query', '')
         conversation_id = body.get('conversation_id')
-        
-        # Extract user ID from Cognito authorizer if available
+
+        # Extract user email - FIXED VERSION
         user_id = 'anonymous@anonymous.local'
+
+        # Check for Cognito authorizer claims
         if event.get('requestContext') and event.get('requestContext').get('authorizer'):
-            # Try to get email from Cognito claims
-            email = event.get('requestContext').get('authorizer').get('claims', {}).get('email')
-            if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
-                user_id = email.lower().strip()
-                logger.info(f"User email from login: {user_id}")
+            authorizer = event.get('requestContext').get('authorizer')
+            
+            # Try different ways to access claims
+            claims = None
+            if 'claims' in authorizer:
+                claims = authorizer['claims']
+            elif isinstance(authorizer, dict):
+                # Sometimes claims are directly in authorizer
+                claims = authorizer
+        
+            if claims:
+                # Try to get email from claims
+                email = claims.get('email')
+                if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+                    user_id = email.lower().strip()
+                    logger.info(f"✅ User email from Cognito claims: {user_id}")
+                else:
+                    # Fallback to cognito:username or sub
+                    cognito_username = claims.get('cognito:username')
+                    sub = claims.get('sub')
+                    if cognito_username:
+                        user_id = f"{cognito_username}@cognito.local"
+                        logger.info(f"Using cognito:username: {user_id}")
+                    elif sub:
+                        user_id = f"{sub}@cognito.local"
+                        logger.info(f"Using sub: {user_id}")
             else:
-                # Fallback to sub if email not available
-                sub = event.get('requestContext').get('authorizer').get('claims', {}).get('sub', 'anonymous')
-                user_id = f"{sub}@cognito.local"
-                logger.info(f"Using Cognito sub as email: {user_id}")
-        else:
-            # Create session-based email for non-logged users
+                logger.warning("No claims found in authorizer")
+                logger.info(f"Authorizer content: {json.dumps(authorizer)}")
+
+        # Fallback for non-authenticated requests
+        if user_id == 'anonymous@anonymous.local':
             source_ip = event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
             if source_ip != 'unknown':
                 session_hash = hashlib.md5(source_ip.encode()).hexdigest()[:12]
                 user_id = f"guest_{session_hash}@anonymous.local"
-                logger.info(f"Session email for non-logged user: {user_id}")
+                logger.info(f"Session email for non-authenticated user: {user_id}")
+
+        logger.info(f"🎯 Final user_id: {user_id}")
+        #############################
+        #############################
 
         if not query:
             return {
