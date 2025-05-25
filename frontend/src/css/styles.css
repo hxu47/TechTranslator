@@ -137,6 +137,7 @@ body {
     overflow-y: auto;
     border-right: 1px solid #34495e;
     flex-shrink: 0;
+    display: block;
 }
 
 .sidebar h5 {
