@@ -325,29 +325,30 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Logout clicked - starting logout process');
         
         try {
-            // Step 1: Call auth service logout
-            console.log('Step 1: Calling authService.logout()');
-            await authService.logout();
-            console.log('Step 1: authService.logout() completed');
+            // Step 1: Save current user's chats before logout
+            console.log('Step 1: Saving current user chats before logout');
+            saveChatSessions();
             
-            // Step 2: Clear chat sessions and reset UI
-            console.log('Step 2: Clearing chat sessions');
+            // Step 2: Call auth service logout
+            console.log('Step 2: Calling authService.logout()');
+            await authService.logout();
+            console.log('Step 2: authService.logout() completed');
+            
+            // Step 3: Clear current chat sessions (they're saved above)
+            console.log('Step 3: Clearing current chat sessions');
             chatSessions = {};
             currentConversationId = null;
-            localStorage.removeItem('techTranslatorChats');
-            console.log('Step 2: Chat sessions cleared');
+            console.log('Step 3: Chat sessions cleared');
             
-            // Step 3: Force UI update
-            console.log('Step 3: Forcing UI update');
+            // Step 4: Force UI update
+            console.log('Step 4: Forcing UI update');
             updateUIAfterLogout();
-            console.log('Step 3: UI update completed');
+            console.log('Step 4: UI update completed');
             
             console.log('Logout process completed successfully');
             
         } catch (error) {
             console.error('Logout error:', error);
-            // Still update UI even if logout fails
-            console.log('Error occurred, but still updating UI');
             updateUIAfterLogout();
         }
     }
@@ -356,7 +357,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * Load user data after authentication
      */
     function loadUserData() {
-        // Load chat sessions from localStorage
+        // Load user-specific chat sessions
         loadChatSessions();
         
         // Display user email
@@ -766,7 +767,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function saveChatSessions() {
         try {
-            localStorage.setItem('techTranslatorChats', JSON.stringify(chatSessions));
+            const userEmail = authService.getUserEmail();
+            const storageKey = userEmail ? `techTranslatorChats_${userEmail}` : 'techTranslatorChats_anonymous';
+            
+            localStorage.setItem(storageKey, JSON.stringify(chatSessions));
+            console.log(`Saved chat sessions for user: ${userEmail || 'anonymous'}`);
         } catch (error) {
             console.warn('Could not save chat sessions to localStorage:', error);
         }
@@ -774,12 +779,20 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function loadChatSessions() {
         try {
-            const saved = localStorage.getItem('techTranslatorChats');
+            const userEmail = authService.getUserEmail();
+            const storageKey = userEmail ? `techTranslatorChats_${userEmail}` : 'techTranslatorChats_anonymous';
+            
+            console.log(`Loading chat sessions for user: ${userEmail || 'anonymous'}`);
+            
+            const saved = localStorage.getItem(storageKey);
             if (saved) {
                 const parsedSessions = JSON.parse(saved);
                 
+                // Clear existing sessions and load user-specific ones
+                chatSessions = {};
                 Object.assign(chatSessions, parsedSessions);
                 
+                // Update chat counter
                 const maxChatNumber = Object.values(chatSessions)
                     .map(chat => {
                         const match = chat.title.match(/Chat (\d+)/);
@@ -789,10 +802,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 chatCounter = maxChatNumber + 1;
                 
+                console.log(`Loaded ${Object.keys(chatSessions).length} chat sessions`);
                 updateChatList();
+            } else {
+                console.log('No saved chat sessions found for this user');
+                chatSessions = {};
+                chatCounter = 1;
             }
         } catch (error) {
             console.warn('Could not load chat sessions from localStorage:', error);
+            chatSessions = {};
+            chatCounter = 1;
         }
     }
+
 });
