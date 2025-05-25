@@ -145,91 +145,113 @@ def lambda_handler(event, context):
 
 def extract_user_email_from_cognito(event):
     """
-    FIXED: Simplified and more reliable user email extraction from Cognito JWT
+    DEBUG VERSION: Enhanced logging to identify the exact issue
     """
     try:
-        # Method 1: Try to get from authorizer context (most reliable for Cognito)
+        # Log the ENTIRE event structure for debugging
+        logger.info("🚨 DEBUG: Full event structure:")
+        logger.info(json.dumps(event, indent=2, default=str))
+        
+        # Method 1: Try to get from authorizer context
         request_context = event.get('requestContext', {})
         authorizer = request_context.get('authorizer', {})
         
-        logger.info(f"🔍 Checking authorizer: {json.dumps(authorizer)}")
+        logger.info(f"🔍 DEBUG: Request context keys: {list(request_context.keys())}")
+        logger.info(f"🔍 DEBUG: Authorizer structure: {json.dumps(authorizer, indent=2, default=str)}")
+        
+        # Check if authorizer is empty (means no authentication)
+        if not authorizer:
+            logger.warning("⚠️ DEBUG: No authorizer found - API might not be using authentication!")
+            
+            # Check if there's identity info (unauthenticated requests)
+            identity = request_context.get('identity', {})
+            logger.info(f"🔍 DEBUG: Identity info: {json.dumps(identity, indent=2, default=str)}")
+            
+            source_ip = identity.get('sourceIp', 'unknown')
+            if source_ip != 'unknown':
+                session_hash = hashlib.md5(source_ip.encode()).hexdigest()[:12]
+                fallback_email = f"guest_{session_hash}@anonymous.local"
+                logger.warning(f"⚠️ DEBUG: Creating guest user from IP: {fallback_email}")
+                return fallback_email
+            
+            return 'no_auth@anonymous.local'
         
         # Check for claims in authorizer
         claims = authorizer.get('claims', {})
         if claims:
+            logger.info(f"✅ DEBUG: Found claims: {json.dumps(claims, indent=2, default=str)}")
+            
             # Try email first
             email = claims.get('email')
             if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
-                logger.info(f"✅ Found email in claims: {email}")
+                logger.info(f"✅ DEBUG: Found valid email in claims: {email}")
                 return email.lower().strip()
             
             # Try cognito:username as backup
             username = claims.get('cognito:username')
             if username:
-                # If username looks like email, use it
+                logger.info(f"✅ DEBUG: Found cognito:username: {username}")
                 if '@' in username:
-                    logger.info(f"✅ Found username as email: {username}")
                     return username.lower().strip()
                 else:
-                    # Otherwise, create email-like identifier
                     user_email = f"{username}@cognito.local"
-                    logger.info(f"✅ Created email from username: {user_email}")
+                    logger.info(f"✅ DEBUG: Created email from username: {user_email}")
                     return user_email
             
             # Try sub as last resort
             sub = claims.get('sub')
             if sub:
                 user_email = f"{sub}@cognito.local"
-                logger.info(f"✅ Created email from sub: {user_email}")
+                logger.info(f"✅ DEBUG: Created email from sub: {user_email}")
                 return user_email
+            
+            logger.warning(f"⚠️ DEBUG: Claims found but no usable identifiers: {list(claims.keys())}")
+        else:
+            logger.warning("⚠️ DEBUG: No claims found in authorizer")
         
-        # Method 2: Direct authorizer fields (sometimes Cognito puts claims directly here)
+        # Method 2: Direct authorizer fields
+        logger.info("🔍 DEBUG: Checking direct authorizer fields...")
+        for key, value in authorizer.items():
+            logger.info(f"  - {key}: {value}")
+        
         email = authorizer.get('email')
         if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
-            logger.info(f"✅ Found direct email in authorizer: {email}")
+            logger.info(f"✅ DEBUG: Found direct email in authorizer: {email}")
             return email.lower().strip()
         
-        username = authorizer.get('cognito:username')
-        if username:
-            if '@' in username:
-                logger.info(f"✅ Found direct username as email: {username}")
-                return username.lower().strip()
-            else:
-                user_email = f"{username}@cognito.local"
-                logger.info(f"✅ Created email from direct username: {user_email}")
-                return user_email
-        
-        # Method 3: Check if there's a principalId (sometimes used by custom authorizers)
+        # Method 3: Check principalId
         principal_id = authorizer.get('principalId')
         if principal_id:
+            logger.info(f"✅ DEBUG: Found principalId: {principal_id}")
             if '@' in principal_id:
-                logger.info(f"✅ Found email in principalId: {principal_id}")
                 return principal_id.lower().strip()
             else:
                 user_email = f"{principal_id}@principal.local"
-                logger.info(f"✅ Created email from principalId: {user_email}")
+                logger.info(f"✅ DEBUG: Created email from principalId: {user_email}")
                 return user_email
         
-        # If all methods fail, log the full structure for debugging
-        logger.warning(f"❌ Could not extract user email from event structure:")
-        logger.warning(f"   Full authorizer: {json.dumps(authorizer)}")
-        logger.warning(f"   Request context keys: {list(request_context.keys())}")
+        # If we get here, authentication might not be working
+        logger.error("❌ DEBUG: No user identification found - possible authentication issues!")
+        logger.error(f"❌ DEBUG: Full authorizer dump: {json.dumps(authorizer)}")
         
-        # Fallback: create anonymous user based on source IP
-        source_ip = request_context.get('identity', {}).get('sourceIp', 'unknown')
+        # Create fallback based on source IP
+        identity = request_context.get('identity', {})
+        source_ip = identity.get('sourceIp', 'unknown')
         if source_ip != 'unknown':
             session_hash = hashlib.md5(source_ip.encode()).hexdigest()[:12]
             fallback_email = f"guest_{session_hash}@anonymous.local"
-            logger.warning(f"⚠️ Using fallback email: {fallback_email}")
+            logger.warning(f"⚠️ DEBUG: Final fallback - created guest from IP: {fallback_email}")
             return fallback_email
         
-        # Final fallback
-        return 'anonymous@anonymous.local'
+        return 'debug_failed@anonymous.local'
         
     except Exception as e:
-        logger.error(f"❌ Error extracting user email: {str(e)}")
-        return 'error@anonymous.local'
-
+        logger.error(f"❌ DEBUG: Error in extract_user_email_from_cognito: {str(e)}")
+        logger.error(f"❌ DEBUG: Exception type: {type(e)}")
+        import traceback
+        logger.error(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
+        return 'exception@anonymous.local'
+        
 # Keep all the other functions exactly the same...
 # (extract_concept_and_audience, detect_follow_up_question, etc.)
 
