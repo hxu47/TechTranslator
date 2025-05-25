@@ -1,4 +1,4 @@
-# main lambda - IMPROVED PROMPT ENGINEERING VERSION
+# main lambda - FIXED USER EXTRACTION VERSION
 import json
 import boto3
 import os
@@ -33,63 +33,18 @@ CORS_HEADERS = {
 }
 
 def lambda_handler(event, context):
-    """Main Lambda function - Enhanced with better prompt engineering"""
+    """Main Lambda function - FIXED user extraction"""
     try:
         logger.info(f"Received event: {json.dumps(event)}")
         
-        #############################
-        #############################
         # Parse request body
         body = json.loads(event.get('body', '{}')) if event.get('body') else {}
         query = body.get('query', '')
         conversation_id = body.get('conversation_id')
 
-        # Extract user email - FIXED VERSION
-        user_id = 'anonymous@anonymous.local'
-
-        # Check for Cognito authorizer claims
-        if event.get('requestContext') and event.get('requestContext').get('authorizer'):
-            authorizer = event.get('requestContext').get('authorizer')
-            
-            # Try different ways to access claims
-            claims = None
-            if 'claims' in authorizer:
-                claims = authorizer['claims']
-            elif isinstance(authorizer, dict):
-                # Sometimes claims are directly in authorizer
-                claims = authorizer
-        
-            if claims:
-                # Try to get email from claims
-                email = claims.get('email')
-                if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
-                    user_id = email.lower().strip()
-                    logger.info(f"✅ User email from Cognito claims: {user_id}")
-                else:
-                    # Fallback to cognito:username or sub
-                    cognito_username = claims.get('cognito:username')
-                    sub = claims.get('sub')
-                    if cognito_username:
-                        user_id = f"{cognito_username}@cognito.local"
-                        logger.info(f"Using cognito:username: {user_id}")
-                    elif sub:
-                        user_id = f"{sub}@cognito.local"
-                        logger.info(f"Using sub: {user_id}")
-            else:
-                logger.warning("No claims found in authorizer")
-                logger.info(f"Authorizer content: {json.dumps(authorizer)}")
-
-        # Fallback for non-authenticated requests
-        if user_id == 'anonymous@anonymous.local':
-            source_ip = event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
-            if source_ip != 'unknown':
-                session_hash = hashlib.md5(source_ip.encode()).hexdigest()[:12]
-                user_id = f"guest_{session_hash}@anonymous.local"
-                logger.info(f"Session email for non-authenticated user: {user_id}")
-
-        logger.info(f"🎯 Final user_id: {user_id}")
-        #############################
-        #############################
+        # FIXED: Simplified user extraction from Cognito JWT
+        user_id = extract_user_email_from_cognito(event)
+        logger.info(f"🎯 Extracted user_id: {user_id}")
 
         if not query:
             return {
@@ -187,6 +142,96 @@ def lambda_handler(event, context):
             'headers': CORS_HEADERS,
             'body': json.dumps({'error': f'Internal server error: {str(e)}'})
         }
+
+def extract_user_email_from_cognito(event):
+    """
+    FIXED: Simplified and more reliable user email extraction from Cognito JWT
+    """
+    try:
+        # Method 1: Try to get from authorizer context (most reliable for Cognito)
+        request_context = event.get('requestContext', {})
+        authorizer = request_context.get('authorizer', {})
+        
+        logger.info(f"🔍 Checking authorizer: {json.dumps(authorizer)}")
+        
+        # Check for claims in authorizer
+        claims = authorizer.get('claims', {})
+        if claims:
+            # Try email first
+            email = claims.get('email')
+            if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+                logger.info(f"✅ Found email in claims: {email}")
+                return email.lower().strip()
+            
+            # Try cognito:username as backup
+            username = claims.get('cognito:username')
+            if username:
+                # If username looks like email, use it
+                if '@' in username:
+                    logger.info(f"✅ Found username as email: {username}")
+                    return username.lower().strip()
+                else:
+                    # Otherwise, create email-like identifier
+                    user_email = f"{username}@cognito.local"
+                    logger.info(f"✅ Created email from username: {user_email}")
+                    return user_email
+            
+            # Try sub as last resort
+            sub = claims.get('sub')
+            if sub:
+                user_email = f"{sub}@cognito.local"
+                logger.info(f"✅ Created email from sub: {user_email}")
+                return user_email
+        
+        # Method 2: Direct authorizer fields (sometimes Cognito puts claims directly here)
+        email = authorizer.get('email')
+        if email and re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+            logger.info(f"✅ Found direct email in authorizer: {email}")
+            return email.lower().strip()
+        
+        username = authorizer.get('cognito:username')
+        if username:
+            if '@' in username:
+                logger.info(f"✅ Found direct username as email: {username}")
+                return username.lower().strip()
+            else:
+                user_email = f"{username}@cognito.local"
+                logger.info(f"✅ Created email from direct username: {user_email}")
+                return user_email
+        
+        # Method 3: Check if there's a principalId (sometimes used by custom authorizers)
+        principal_id = authorizer.get('principalId')
+        if principal_id:
+            if '@' in principal_id:
+                logger.info(f"✅ Found email in principalId: {principal_id}")
+                return principal_id.lower().strip()
+            else:
+                user_email = f"{principal_id}@principal.local"
+                logger.info(f"✅ Created email from principalId: {user_email}")
+                return user_email
+        
+        # If all methods fail, log the full structure for debugging
+        logger.warning(f"❌ Could not extract user email from event structure:")
+        logger.warning(f"   Full authorizer: {json.dumps(authorizer)}")
+        logger.warning(f"   Request context keys: {list(request_context.keys())}")
+        
+        # Fallback: create anonymous user based on source IP
+        source_ip = request_context.get('identity', {}).get('sourceIp', 'unknown')
+        if source_ip != 'unknown':
+            session_hash = hashlib.md5(source_ip.encode()).hexdigest()[:12]
+            fallback_email = f"guest_{session_hash}@anonymous.local"
+            logger.warning(f"⚠️ Using fallback email: {fallback_email}")
+            return fallback_email
+        
+        # Final fallback
+        return 'anonymous@anonymous.local'
+        
+    except Exception as e:
+        logger.error(f"❌ Error extracting user email: {str(e)}")
+        return 'error@anonymous.local'
+
+# Keep all the other functions exactly the same...
+# (extract_concept_and_audience, detect_follow_up_question, etc.)
 
 def extract_concept_and_audience(query):
     """Enhanced concept and audience extraction"""
@@ -320,8 +365,7 @@ def get_relevant_context_enhanced(concept, audience, query, max_items=3):
         logger.error(f"Error getting enhanced context: {str(e)}")
         return []
 
-# Quick fix for your main Lambda function - replace the problematic functions
-
+# Include all other functions from your original code...
 def create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                       is_follow_up=False, follow_up_type=None):
     """Create clean fallback responses without redundant titles"""
@@ -395,7 +439,6 @@ def clean_chunk_text(text):
     
     return cleaned_text
 
-# Also update the FLAN-T5 response generation to be cleaner
 def generate_response_with_enhanced_prompts(query, concept_and_audience, relevant_chunks, 
                                           is_follow_up=False, follow_up_type=None, conversation_context=None):
     """Enhanced response generation - CLEAN VERSION"""
@@ -617,7 +660,6 @@ Implementation guidance:"""
     }
     
     return follow_up_prompts.get(follow_up_type, follow_up_prompts['elaboration'])
-
 
 def create_example_response(concept, audience, chunk):
     """Create example-focused responses"""
