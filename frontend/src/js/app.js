@@ -24,9 +24,16 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentConversationId = null;
     let chatSessions = {}; // Store chat sessions in memory
     let chatCounter = 1;
-    
+    let pageLoaded = false;
+
     // Initialize UI - Skip auth for now and show chat directly
     initializeUI();
+
+
+    window.addEventListener('load', function() {
+        pageLoaded = true;
+        console.log('Page fully loaded');
+    });
     
     // Event listeners for authentication (keeping mock auth structure)
     showRegisterButton?.addEventListener('click', () => {
@@ -365,8 +372,10 @@ document.addEventListener('DOMContentLoaded', function() {
             updateChatList();
         }
         
-        // Auto-scroll to the bottom
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        // Only auto-scroll if page is fully loaded and not during initial setup
+        if (pageLoaded && chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
     }
     
     /**
