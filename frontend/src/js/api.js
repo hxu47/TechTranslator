@@ -48,6 +48,8 @@ class ApiService {
      */
     async sendQuery(query, conversationId = null) {
         try {
+            console.log('Sending query:', { query, conversationId, apiUrl: this.apiUrl });
+            
             const response = await fetch(`${this.apiUrl}/query`, {
                 method: 'POST',
                 headers: this.getHeaders(),
@@ -57,20 +59,50 @@ class ApiService {
                 })
             });
             
+            console.log('Response status:', response.status);
+            
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `API request failed: ${response.statusText}`);
+                let errorData;
+                try {
+                    errorData = await response.json();
+                } catch (e) {
+                    // If we can't parse JSON, create a generic error
+                    errorData = { error: `Request failed with status ${response.status}` };
+                }
+                
+                console.error('API Error:', errorData);
+                
+                // Handle specific error cases
+                if (response.status === 503) {
+                    throw new Error('AI service temporarily unavailable. Please ensure the SageMaker endpoint is deployed and configured.');
+                } else if (response.status === 500) {
+                    throw new Error(errorData.error || 'Internal server error occurred. Please try again.');
+                } else if (response.status === 400) {
+                    throw new Error(errorData.error || 'Invalid request. Please check your input.');
+                } else {
+                    throw new Error(errorData.error || `API request failed: ${response.statusText}`);
+                }
             }
             
-            return await response.json();
+            const data = await response.json();
+            console.log('API Response:', data);
+            
+            // Validate response structure
+            if (!data.response) {
+                throw new Error('Invalid response format from server');
+            }
+            
+            return data;
+            
         } catch (error) {
             console.error('Error sending query:', error);
             
-            // Check if it's a 503 error (SageMaker not configured)
-            if (error.message.includes('503') || error.message.includes('AI service temporarily unavailable')) {
-                throw new Error('The AI model is not available. Please ensure the SageMaker endpoint is deployed and configured.');
+            // Handle network errors
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                throw new Error('Unable to connect to the server. Please check your internet connection and try again.');
             }
             
+            // Re-throw other errors as-is
             throw error;
         }
     }
@@ -82,10 +114,10 @@ class ApiService {
      */
     async getConversations(conversationId = null) {
         try {
-            // Since we're not using authentication, we'll skip this for now
-            // In a real implementation with Cognito, this would work
+            // Since we're not using authentication for now, return empty conversations
+            // This can be implemented later when Cognito authentication is fully enabled
             
-            // For now, return empty conversations
+            console.log('Getting conversations (not implemented without auth)');
             return { conversations: [] };
             
             /* 
@@ -97,7 +129,8 @@ class ApiService {
             });
             
             if (!response.ok) {
-                throw new Error(`API request failed: ${response.statusText}`);
+                const errorData = await response.json();
+                throw new Error(errorData.error || `API request failed: ${response.statusText}`);
             }
             
             return await response.json();
@@ -105,6 +138,21 @@ class ApiService {
         } catch (error) {
             console.error('Error getting conversations:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Test API connectivity
+     * @returns {Promise<boolean>} True if API is reachable
+     */
+    async testConnection() {
+        try {
+            // Simple test query to check if API is working
+            const testResponse = await this.sendQuery('test connection');
+            return true;
+        } catch (error) {
+            console.error('API connection test failed:', error);
+            return false;
         }
     }
 }

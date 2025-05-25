@@ -17,27 +17,62 @@ document.addEventListener('DOMContentLoaded', function() {
     const userInput = document.getElementById('userInput');
     const sendButton = document.getElementById('sendButton');
     const conversationHistory = document.getElementById('conversationHistory');
+    const newChatButton = document.getElementById('newChatButton');
+    const currentChatTitle = document.getElementById('currentChatTitle');
     
-    // Current conversation ID
+    // Chat management
     let currentConversationId = null;
+    let chatSessions = {}; // Store chat sessions in memory
+    let chatCounter = 1;
     
-    // Initialize UI - Skip auth for now
+    // Initialize UI - Skip auth for now and show chat directly
     initializeUI();
     
-    // Event listeners for authentication (keeping mock auth)
-    showRegisterButton.addEventListener('click', () => {
+    // Event listeners for authentication (keeping mock auth structure)
+    showRegisterButton?.addEventListener('click', () => {
         loginForm.style.display = 'none';
         registerForm.style.display = 'block';
     });
     
-    showLoginButton.addEventListener('click', () => {
+    showLoginButton?.addEventListener('click', () => {
         registerForm.style.display = 'none';
         loginForm.style.display = 'block';
     });
     
-    loginButton.addEventListener('click', async () => {
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
+    loginButton?.addEventListener('click', handleLogin);
+    registerButton?.addEventListener('click', handleRegister);
+    logoutButton?.addEventListener('click', handleLogout);
+    
+    // Event listeners for chat
+    sendButton.addEventListener('click', sendMessage);
+    newChatButton.addEventListener('click', createNewChat);
+    
+    userInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+    
+    /**
+     * Initialize UI - Show chat interface directly
+     */
+    function initializeUI() {
+        // Show chat interface directly without authentication
+        updateUIAfterAuth();
+        
+        // Create the first chat session
+        createNewChat();
+        
+        // Load any existing chat sessions from localStorage
+        loadChatSessions();
+    }
+    
+    /**
+     * Handle login (mock implementation)
+     */
+    async function handleLogin() {
+        const email = document.getElementById('email')?.value;
+        const password = document.getElementById('password')?.value;
         
         if (!email || !password) {
             alert('Please enter email and password');
@@ -48,25 +83,25 @@ document.addEventListener('DOMContentLoaded', function() {
             loginButton.disabled = true;
             loginButton.innerHTML = '<span class="loading"></span> Logging in...';
             
-            await authService.login(email, password);
-            
-            // Update UI to show chat
+            // Mock login - just update UI
+            await new Promise(resolve => setTimeout(resolve, 1000));
             updateUIAfterAuth();
             
-            // Load conversation history (will be empty for now)
-            loadConversationHistory();
         } catch (error) {
             alert('Login failed: ' + error.message);
         } finally {
             loginButton.disabled = false;
             loginButton.innerHTML = 'Login';
         }
-    });
+    }
     
-    registerButton.addEventListener('click', async () => {
-        const email = document.getElementById('registerEmail').value;
-        const password = document.getElementById('registerPassword').value;
-        const confirmPassword = document.getElementById('confirmPassword').value;
+    /**
+     * Handle registration (mock implementation)
+     */
+    async function handleRegister() {
+        const email = document.getElementById('registerEmail')?.value;
+        const password = document.getElementById('registerPassword')?.value;
+        const confirmPassword = document.getElementById('confirmPassword')?.value;
         
         if (!email || !password || !confirmPassword) {
             alert('Please fill all fields');
@@ -82,7 +117,8 @@ document.addEventListener('DOMContentLoaded', function() {
             registerButton.disabled = true;
             registerButton.innerHTML = '<span class="loading"></span> Registering...';
             
-            await authService.register(email, password);
+            // Mock registration
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             // Show login form after successful registration
             registerForm.style.display = 'none';
@@ -98,45 +134,24 @@ document.addEventListener('DOMContentLoaded', function() {
             registerButton.disabled = false;
             registerButton.innerHTML = 'Register';
         }
-    });
-    
-    logoutButton.addEventListener('click', () => {
-        authService.logout();
-        updateUIAfterLogout();
-    });
-    
-    // Event listeners for chat
-    sendButton.addEventListener('click', sendMessage);
-    
-    userInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            sendMessage();
-        }
-    });
+    }
     
     /**
-     * Initialize UI based on authentication status
+     * Handle logout
      */
-    function initializeUI() {
-        // For now, just show the chat interface directly
-        // You can re-enable auth later by uncommenting the original logic
-        updateUIAfterAuth();
-        
-        /* Original auth-based initialization:
-        if (authService.isUserAuthenticated()) {
-            updateUIAfterAuth();
-            loadConversationHistory();
-        } else {
-            updateUIAfterLogout();
-        }
-        */
+    function handleLogout() {
+        // Clear chat sessions and reset UI
+        chatSessions = {};
+        currentConversationId = null;
+        localStorage.removeItem('techTranslatorChats');
+        updateUIAfterLogout();
     }
     
     /**
      * Update UI after successful authentication
      */
     function updateUIAfterAuth() {
-        authSection.style.display = 'none';
+        if (authSection) authSection.style.display = 'none';
         chatSection.style.display = 'block';
     }
     
@@ -144,27 +159,172 @@ document.addEventListener('DOMContentLoaded', function() {
      * Update UI after logout
      */
     function updateUIAfterLogout() {
-        authSection.style.display = 'block';
+        if (authSection) authSection.style.display = 'block';
         chatSection.style.display = 'none';
-        loginForm.style.display = 'block';
-        registerForm.style.display = 'none';
+        if (loginForm) loginForm.style.display = 'block';
+        if (registerForm) registerForm.style.display = 'none';
         
         // Clear forms
-        document.getElementById('email').value = '';
-        document.getElementById('password').value = '';
-        document.getElementById('registerEmail').value = '';
-        document.getElementById('registerPassword').value = '';
-        document.getElementById('confirmPassword').value = '';
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const registerEmailInput = document.getElementById('registerEmail');
+        const registerPasswordInput = document.getElementById('registerPassword');
+        const confirmPasswordInput = document.getElementById('confirmPassword');
+        
+        if (emailInput) emailInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+        if (registerEmailInput) registerEmailInput.value = '';
+        if (registerPasswordInput) registerPasswordInput.value = '';
+        if (confirmPasswordInput) confirmPasswordInput.value = '';
     }
     
     /**
-     * Add a message to the chat
+     * Create a new chat session
+     */
+    function createNewChat() {
+        // Generate new conversation ID
+        const newConversationId = generateConversationId();
+        currentConversationId = newConversationId;
+        
+        // Create new chat session
+        const chatSession = {
+            id: newConversationId,
+            title: `Chat ${chatCounter}`,
+            messages: [],
+            concept: null,
+            audience: null,
+            createdAt: new Date().toISOString()
+        };
+        
+        chatSessions[newConversationId] = chatSession;
+        chatCounter++;
+        
+        // Clear current chat display
+        messageContainer.innerHTML = '';
+        
+        // Add welcome message
+        addMessage("Hello! I'm TechTranslator. I can explain data science and machine learning concepts for insurance professionals. Try asking me about concepts like \"R-squared\", \"loss ratio\", or \"predictive models\". You can also specify your role (e.g., \"Explain R-squared to an underwriter\").", false);
+        
+        // Update chat title
+        updateChatTitle(chatSession.title);
+        
+        // Update chat list
+        updateChatList();
+        
+        // Save to localStorage
+        saveChatSessions();
+        
+        // Focus on input
+        userInput.focus();
+    }
+    
+    /**
+     * Switch to an existing chat
+     */
+    function switchToChat(conversationId) {
+        if (!chatSessions[conversationId]) return;
+        
+        currentConversationId = conversationId;
+        const chatSession = chatSessions[conversationId];
+        
+        // Clear current chat display
+        messageContainer.innerHTML = '';
+        
+        // Load messages from this chat session
+        chatSession.messages.forEach(msg => {
+            addMessage(msg.content, msg.isUser, msg.extraInfo);
+        });
+        
+        // If no messages, show welcome message
+        if (chatSession.messages.length === 0) {
+            addMessage("Hello! I'm TechTranslator. I can explain data science and machine learning concepts for insurance professionals. Try asking me about concepts like \"R-squared\", \"loss ratio\", or \"predictive models\". You can also specify your role (e.g., \"Explain R-squared to an underwriter\").", false);
+        }
+        
+        // Update chat title
+        updateChatTitle(chatSession.title);
+        
+        // Update chat list to show active chat
+        updateChatList();
+        
+        // Focus on input
+        userInput.focus();
+    }
+    
+    /**
+     * Update chat title
+     */
+    function updateChatTitle(title) {
+        if (currentChatTitle) {
+            currentChatTitle.textContent = title;
+        }
+    }
+    
+    /**
+     * Update the chat list in the sidebar
+     */
+    function updateChatList() {
+        if (!conversationHistory) return;
+        
+        conversationHistory.innerHTML = '';
+        
+        // Sort chats by creation date (newest first)
+        const sortedChats = Object.values(chatSessions).sort((a, b) => 
+            new Date(b.createdAt) - new Date(a.createdAt)
+        );
+        
+        sortedChats.forEach(chat => {
+            const chatItem = document.createElement('div');
+            chatItem.className = `list-group-item list-group-item-action conversation-item ${
+                chat.id === currentConversationId ? 'active' : ''
+            }`;
+            
+            const chatTitle = document.createElement('div');
+            chatTitle.className = 'fw-bold';
+            chatTitle.textContent = chat.title;
+            
+            const chatPreview = document.createElement('div');
+            chatPreview.className = 'text-muted small';
+            
+            // Show preview of last user message or concept info
+            if (chat.messages.length > 0) {
+                const lastUserMessage = chat.messages.filter(m => m.isUser).pop();
+                if (lastUserMessage) {
+                    chatPreview.textContent = lastUserMessage.content.substring(0, 50) + 
+                        (lastUserMessage.content.length > 50 ? '...' : '');
+                } else if (chat.concept) {
+                    chatPreview.textContent = `About: ${chat.concept}`;
+                } else {
+                    chatPreview.textContent = 'New conversation';
+                }
+            } else {
+                chatPreview.textContent = 'New conversation';
+            }
+            
+            chatItem.appendChild(chatTitle);
+            chatItem.appendChild(chatPreview);
+            
+            // Add click handler
+            chatItem.addEventListener('click', () => switchToChat(chat.id));
+            
+            conversationHistory.appendChild(chatItem);
+        });
+    }
+    
+    /**
+     * Generate a unique conversation ID
+     */
+    function generateConversationId() {
+        return 'chat_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+    
+    /**
+     * Add a message to the current chat
      */
     function addMessage(message, isUser, extraInfo = null) {
         const messageDiv = document.createElement('div');
         messageDiv.className = isUser ? 'user-message' : 'bot-message';
         
-        // For bot messages, we might want to show extra info like concept/audience
+        // For bot messages, show extra info like concept/audience
         if (!isUser && extraInfo) {
             const infoDiv = document.createElement('div');
             infoDiv.style.fontSize = '0.8em';
@@ -179,6 +339,31 @@ document.addEventListener('DOMContentLoaded', function() {
         messageDiv.appendChild(textDiv);
         
         messageContainer.appendChild(messageDiv);
+        
+        // Save message to current chat session
+        if (chatSessions[currentConversationId]) {
+            chatSessions[currentConversationId].messages.push({
+                content: message,
+                isUser: isUser,
+                extraInfo: extraInfo,
+                timestamp: new Date().toISOString()
+            });
+            
+            // Update chat title based on first user message or detected concept
+            if (isUser && chatSessions[currentConversationId].messages.filter(m => m.isUser).length === 1) {
+                // This is the first user message, use it to create a meaningful title
+                const title = message.length > 30 ? message.substring(0, 30) + '...' : message;
+                chatSessions[currentConversationId].title = title;
+                updateChatTitle(title);
+            } else if (!isUser && extraInfo?.concept) {
+                // Update concept info
+                chatSessions[currentConversationId].concept = extraInfo.concept;
+                chatSessions[currentConversationId].audience = extraInfo.audience;
+            }
+            
+            saveChatSessions();
+            updateChatList();
+        }
         
         // Auto-scroll to the bottom
         chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -217,7 +402,7 @@ document.addEventListener('DOMContentLoaded', function() {
             sendButton.disabled = true;
             userInput.disabled = true;
             
-            // Call API
+            // Call API - use the current conversation ID for follow-up context
             const data = await apiService.sendQuery(message, currentConversationId);
             
             // Remove loading indicator
@@ -229,11 +414,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 audience: data.audience
             });
             
-            // Update current conversation ID
-            currentConversationId = data.conversation_id;
+            // Update current conversation ID (API might return a new one for first message)
+            if (data.conversation_id && data.conversation_id !== currentConversationId) {
+                // Update the chat session ID if API returned a different one
+                const oldId = currentConversationId;
+                const newId = data.conversation_id;
+                
+                if (chatSessions[oldId]) {
+                    chatSessions[newId] = chatSessions[oldId];
+                    chatSessions[newId].id = newId;
+                    delete chatSessions[oldId];
+                    currentConversationId = newId;
+                    saveChatSessions();
+                    updateChatList();
+                }
+            }
             
-            // Don't refresh conversation history since we're not using auth yet
-            // loadConversationHistory();
         } catch (error) {
             console.error('Error sending message:', error);
             
@@ -243,7 +439,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show user-friendly error message
             let errorMessage = 'Sorry, there was an error processing your request.';
             
-            if (error.message.includes('AI model is not available')) {
+            if (error.message.includes('AI model is not available') || 
+                error.message.includes('AI service temporarily unavailable')) {
                 errorMessage = 'The AI service is not available. Please ensure the SageMaker endpoint is deployed and configured.';
             } else if (error.message.includes('Failed to fetch')) {
                 errorMessage = 'Unable to connect to the server. Please check your connection and try again.';
@@ -258,24 +455,43 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     /**
-     * Load conversation history
+     * Save chat sessions to localStorage
      */
-    async function loadConversationHistory() {
-        // Skip this for now since we're not using auth
-        // The conversation history section will remain empty
-        
-        // Hide the conversation history section since it's not functional yet
-        const historySection = document.querySelector('.conversation-history');
-        if (historySection) {
-            historySection.style.display = 'none';
+    function saveChatSessions() {
+        try {
+            localStorage.setItem('techTranslatorChats', JSON.stringify(chatSessions));
+        } catch (error) {
+            console.warn('Could not save chat sessions to localStorage:', error);
         }
     }
     
     /**
-     * Load a specific conversation
+     * Load chat sessions from localStorage
      */
-    async function loadConversation(conversationId) {
-        // Skip this for now since we're not using auth
-        console.log('Conversation loading not implemented without authentication');
+    function loadChatSessions() {
+        try {
+            const saved = localStorage.getItem('techTranslatorChats');
+            if (saved) {
+                const parsedSessions = JSON.parse(saved);
+                
+                // Merge with existing sessions
+                Object.assign(chatSessions, parsedSessions);
+                
+                // Update chat counter
+                const maxChatNumber = Object.values(chatSessions)
+                    .map(chat => {
+                        const match = chat.title.match(/Chat (\d+)/);
+                        return match ? parseInt(match[1]) : 0;
+                    })
+                    .reduce((max, num) => Math.max(max, num), 0);
+                
+                chatCounter = maxChatNumber + 1;
+                
+                // Update chat list
+                updateChatList();
+            }
+        } catch (error) {
+            console.warn('Could not load chat sessions from localStorage:', error);
+        }
     }
 });
