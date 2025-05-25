@@ -356,9 +356,8 @@ document.addEventListener('DOMContentLoaded', function() {
     /**
      * Load user data after authentication
      */
-    function loadUserData() {
-        // Load user-specific chat sessions
-        loadChatSessions();
+    async function loadUserData() {
+        console.log('🔄 Loading user data with DynamoDB integration...');
         
         // Display user email
         const userEmail = authService.getUserEmail();
@@ -366,20 +365,123 @@ document.addEventListener('DOMContentLoaded', function() {
             userEmailDisplay.textContent = userEmail;
         }
         
-        // Create the first chat session if no existing sessions
-        if (Object.keys(chatSessions).length === 0) {
-            createNewChat();
-        } else {
-            // Switch to the most recent chat
-            const sortedChats = Object.values(chatSessions).sort((a, b) => 
-                new Date(b.createdAt) - new Date(a.createdAt)
-            );
-            if (sortedChats.length > 0) {
-                switchToChat(sortedChats[0].id);
+        try {
+            // Load chat sessions from DynamoDB first
+            await loadChatSessionsFromDynamoDB();
+            
+            // Then try to merge with any local storage data (for offline capability)
+            loadLocalChatSessions();
+            
+            // Create the first chat session if no existing sessions
+            if (Object.keys(chatSessions).length === 0) {
+                console.log('No existing chats found, creating new chat');
+                createNewChat();
+            } else {
+                // Switch to the most recent chat
+                const sortedChats = Object.values(chatSessions).sort((a, b) => 
+                    new Date(b.createdAt) - new Date(a.createdAt)
+                );
+                if (sortedChats.length > 0) {
+                    console.log(`Switching to most recent chat: ${sortedChats[0].title}`);
+                    switchToChat(sortedChats[0].id);
+                }
             }
+            
+        } catch (error) {
+            console.error('❌ Error loading user data:', error);
+            
+            // Fallback to local storage only
+            console.log('🔄 Falling back to local storage only...');
+            loadLocalChatSessions();
+            
+            if (Object.keys(chatSessions).length === 0) {
+                createNewChat();
+            }
+            
+            // Show user a warning (optional)
+            console.warn('⚠️ Could not load chat history from server, using local storage only');
         }
     }
     
+    // New function to load chat sessions from DynamoDB
+    async function loadChatSessionsFromDynamoDB() {
+        try {
+            console.log('📡 Loading chat sessions from DynamoDB...');
+            
+            // Get conversation history from API
+            const response = await apiService.getConversationHistory();
+            
+            if (response && response.conversations && response.conversations.length > 0) {
+                console.log(`📡 Retrieved ${response.conversations.length} conversation items from DynamoDB`);
+                
+                // Convert DynamoDB format to chat sessions format
+                const dynamodbChats = apiService.convertDynamoDBToChats(response.conversations);
+                
+                // Clear existing sessions and load from DynamoDB
+                chatSessions = {};
+                Object.assign(chatSessions, dynamodbChats);
+                
+                // Update chat counter based on loaded chats
+                const maxChatNumber = Object.values(chatSessions)
+                    .map(chat => {
+                        const match = chat.title.match(/Chat (\d+)/);
+                        return match ? parseInt(match[1]) : 0;
+                    })
+                    .reduce((max, num) => Math.max(max, num), 0);
+                
+                chatCounter = maxChatNumber + 1;
+                
+                console.log(`✅ Loaded ${Object.keys(chatSessions).length} chat sessions from DynamoDB`);
+                updateChatList();
+                
+                // Also save to local storage for offline access
+                saveChatSessions();
+                
+                return true;
+            } else {
+                console.log('📡 No conversation history found in DynamoDB');
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('❌ Error loading from DynamoDB:', error);
+            throw error;
+        }
+    }
+
+    // Enhanced local storage loading (now serves as backup/merge)
+    function loadLocalChatSessions() {
+        try {
+            const userEmail = authService.getUserEmail();
+            const storageKey = userEmail ? `techTranslatorChats_${userEmail}` : 'techTranslatorChats_anonymous';
+            
+            console.log(`📱 Loading local chat sessions for user: ${userEmail || 'anonymous'}`);
+            
+            const saved = localStorage.getItem(storageKey);
+            if (saved) {
+                const parsedSessions = JSON.parse(saved);
+                
+                // Merge with existing sessions (DynamoDB takes precedence)
+                Object.keys(parsedSessions).forEach(sessionId => {
+                    if (!chatSessions[sessionId]) {
+                        console.log(`📱 Adding local-only session: ${sessionId}`);
+                        chatSessions[sessionId] = parsedSessions[sessionId];
+                    }
+                });
+                
+                console.log(`📱 Local storage contained ${Object.keys(parsedSessions).length} sessions`);
+                updateChatList();
+            } else {
+                console.log('📱 No local chat sessions found');
+            }
+        } catch (error) {
+            console.warn('Could not load chat sessions from localStorage:', error);
+            chatSessions = {};
+            chatCounter = 1;
+        }
+    }
+
+
     /**
      * Update UI after successful authentication
      */
@@ -765,55 +867,29 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // Enhanced saveChatSessions to maintain dual storage
     function saveChatSessions() {
         try {
             const userEmail = authService.getUserEmail();
             const storageKey = userEmail ? `techTranslatorChats_${userEmail}` : 'techTranslatorChats_anonymous';
             
             localStorage.setItem(storageKey, JSON.stringify(chatSessions));
-            console.log(`Saved chat sessions for user: ${userEmail || 'anonymous'}`);
+            console.log(`💾 Saved ${Object.keys(chatSessions).length} chat sessions locally for user: ${userEmail || 'anonymous'}`);
         } catch (error) {
             console.warn('Could not save chat sessions to localStorage:', error);
         }
     }
-    
-    function loadChatSessions() {
+
+    async function refreshChatHistory() {
         try {
-            const userEmail = authService.getUserEmail();
-            const storageKey = userEmail ? `techTranslatorChats_${userEmail}` : 'techTranslatorChats_anonymous';
-            
-            console.log(`Loading chat sessions for user: ${userEmail || 'anonymous'}`);
-            
-            const saved = localStorage.getItem(storageKey);
-            if (saved) {
-                const parsedSessions = JSON.parse(saved);
-                
-                // Clear existing sessions and load user-specific ones
-                chatSessions = {};
-                Object.assign(chatSessions, parsedSessions);
-                
-                // Update chat counter
-                const maxChatNumber = Object.values(chatSessions)
-                    .map(chat => {
-                        const match = chat.title.match(/Chat (\d+)/);
-                        return match ? parseInt(match[1]) : 0;
-                    })
-                    .reduce((max, num) => Math.max(max, num), 0);
-                
-                chatCounter = maxChatNumber + 1;
-                
-                console.log(`Loaded ${Object.keys(chatSessions).length} chat sessions`);
-                updateChatList();
-            } else {
-                console.log('No saved chat sessions found for this user');
-                chatSessions = {};
-                chatCounter = 1;
-            }
+            console.log('🔄 Refreshing chat history from server...');
+            await loadChatSessionsFromDynamoDB();
+            console.log('✅ Chat history refreshed successfully');
         } catch (error) {
-            console.warn('Could not load chat sessions from localStorage:', error);
-            chatSessions = {};
-            chatCounter = 1;
+            console.error('❌ Failed to refresh chat history:', error);
         }
     }
+    
+
 
 });

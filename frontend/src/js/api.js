@@ -198,6 +198,226 @@ class ApiService {
             return false;
         }
     }
+
+        /**
+     * Get conversation history from DynamoDB
+     * @param {string} conversationId - Optional specific conversation ID
+     * @returns {Promise} Promise with conversation history
+     */
+    async getConversationHistory(conversationId = null) {
+        try {
+            console.log('📤 DEBUG: Getting conversation history from DynamoDB:', { 
+                conversationId,
+                hasToken: !!this.token 
+            });
+            
+            const headers = this.getHeaders();
+            const params = conversationId ? `?conversation_id=${conversationId}` : '';
+            
+            console.log('📤 DEBUG: Request details:', {
+                url: `${this.apiUrl}/conversation${params}`,
+                method: 'GET',
+                headers: headers
+            });
+            
+            const response = await fetch(`${this.apiUrl}/conversation${params}`, {
+                method: 'GET',
+                headers: headers
+            });
+            
+            console.log('📥 DEBUG: Conversation history response:', {
+                status: response.status,
+                statusText: response.statusText
+            });
+            
+            if (!response.ok) {
+                let errorData;
+                try {
+                    errorData = await response.json();
+                } catch (e) {
+                    errorData = { error: `Request failed with status ${response.status}` };
+                }
+                
+                console.error('❌ DEBUG: Conversation API Error:', errorData);
+                
+                if (response.status === 401) {
+                    throw new Error('Authentication failed. Please log in again.');
+                } else {
+                    throw new Error(errorData.error || `Failed to load conversation history: ${response.statusText}`);
+                }
+            }
+            
+            const data = await response.json();
+            console.log('📥 DEBUG: Conversation data preview:', {
+                hasConversations: !!data.conversations,
+                conversationCount: data.conversations ? data.conversations.length : 0
+            });
+            
+            return data;
+            
+        } catch (error) {
+            console.error('❌ DEBUG: Error getting conversation history:', error);
+            
+            // Handle network errors
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                throw new Error('Unable to connect to the server. Please check your internet connection.');
+            }
+            
+            throw error;
+        }
+    }
+
+    /**
+     * Get conversation history from DynamoDB
+     * @param {string} conversationId - Optional specific conversation ID
+     * @returns {Promise} Promise with conversation history
+     */
+    async getConversationHistory(conversationId = null) {
+        try {
+            console.log('📤 DEBUG: Getting conversation history from DynamoDB:', { 
+                conversationId,
+                hasToken: !!this.token 
+            });
+            
+            const headers = this.getHeaders();
+            const params = conversationId ? `?conversation_id=${conversationId}` : '';
+            
+            console.log('📤 DEBUG: Request details:', {
+                url: `${this.apiUrl}/conversation${params}`,
+                method: 'GET',
+                headers: headers
+            });
+            
+            const response = await fetch(`${this.apiUrl}/conversation${params}`, {
+                method: 'GET',
+                headers: headers
+            });
+            
+            console.log('📥 DEBUG: Conversation history response:', {
+                status: response.status,
+                statusText: response.statusText
+            });
+            
+            if (!response.ok) {
+                let errorData;
+                try {
+                    errorData = await response.json();
+                } catch (e) {
+                    errorData = { error: `Request failed with status ${response.status}` };
+                }
+                
+                console.error('❌ DEBUG: Conversation API Error:', errorData);
+                
+                if (response.status === 401) {
+                    throw new Error('Authentication failed. Please log in again.');
+                } else {
+                    throw new Error(errorData.error || `Failed to load conversation history: ${response.statusText}`);
+                }
+            }
+            
+            const data = await response.json();
+            console.log('📥 DEBUG: Conversation data preview:', {
+                hasConversations: !!data.conversations,
+                conversationCount: data.conversations ? data.conversations.length : 0
+            });
+            
+            return data;
+            
+        } catch (error) {
+            console.error('❌ DEBUG: Error getting conversation history:', error);
+            
+            // Handle network errors
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                throw new Error('Unable to connect to the server. Please check your internet connection.');
+            }
+            
+            throw error;
+        }
+    }
+
+
+    /**
+     * Convert DynamoDB conversation items to frontend chat sessions
+     * @param {Array} conversationItems - Array of conversation items from DynamoDB
+     * @returns {Object} Chat sessions object
+     */
+    convertDynamoDBToChats(conversationItems) {
+        console.log('🔄 DEBUG: Converting DynamoDB items to chat sessions:', conversationItems.length);
+        
+        const chatSessions = {};
+        const conversationGroups = {};
+        
+        // Group items by base_conversation_id
+        conversationItems.forEach(item => {
+            const baseId = item.base_conversation_id || item.conversation_id.split('#')[0];
+            if (!conversationGroups[baseId]) {
+                conversationGroups[baseId] = [];
+            }
+            conversationGroups[baseId].push(item);
+        });
+        
+        // Convert each conversation group to a chat session
+        Object.keys(conversationGroups).forEach(baseId => {
+            const items = conversationGroups[baseId].sort((a, b) => 
+                new Date(a.timestamp) - new Date(b.timestamp)
+            );
+            
+            if (items.length > 0) {
+                const firstItem = items[0];
+                const lastItem = items[items.length - 1];
+                
+                // Create chat session
+                const chatSession = {
+                    id: baseId,
+                    title: this.generateChatTitle(firstItem.query),
+                    messages: [],
+                    concept: lastItem.concept || null,
+                    audience: lastItem.audience || null,
+                    createdAt: firstItem.timestamp
+                };
+                
+                // Add messages for each item
+                items.forEach(item => {
+                    // Add user message
+                    chatSession.messages.push({
+                        content: item.query,
+                        isUser: true,
+                        extraInfo: null,
+                        timestamp: item.timestamp
+                    });
+                    
+                    // Add bot response
+                    chatSession.messages.push({
+                        content: item.response,
+                        isUser: false,
+                        extraInfo: {
+                            concept: item.concept,
+                            audience: item.audience
+                        },
+                        timestamp: item.timestamp
+                    });
+                });
+                
+                chatSessions[baseId] = chatSession;
+            }
+        });
+        
+        console.log('✅ DEBUG: Converted to chat sessions:', Object.keys(chatSessions).length);
+        return chatSessions;
+    }
+
+
+    /**
+     * Generate a chat title from the first query
+     * @param {string} query - First query in the conversation
+     * @returns {string} Chat title
+     */
+    generateChatTitle(query) {
+        if (!query) return 'New Chat';
+        return query.length > 30 ? query.substring(0, 30) + '...' : query;
+    }
+
+
 }
 
 // Create a singleton instance
