@@ -1,5 +1,5 @@
 /**
- * Main application logic for TechTranslator - Fixed Version
+ * Main application logic for TechTranslator - Fixed Version v2
  */
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded - starting app');
@@ -92,11 +92,21 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show chat interface directly without authentication
         updateUIAfterAuth();
         
-        // Create the first chat session
-        createNewChat();
-        
-        // Load any existing chat sessions from localStorage
+        // Load any existing chat sessions from localStorage first
         loadChatSessions();
+        
+        // Create the first chat session only if no existing sessions
+        if (Object.keys(chatSessions).length === 0) {
+            createNewChat();
+        } else {
+            // Switch to the most recent chat
+            const sortedChats = Object.values(chatSessions).sort((a, b) => 
+                new Date(b.createdAt) - new Date(a.createdAt)
+            );
+            if (sortedChats.length > 0) {
+                switchToChat(sortedChats[0].id);
+            }
+        }
     }
     
     /**
@@ -245,11 +255,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const newConversationId = generateConversationId();
         currentConversationId = newConversationId;
         
-        // Create new chat session
+        // Create new chat session - IMPORTANT: Start with empty messages
         const chatSession = {
             id: newConversationId,
             title: `Chat ${chatCounter}`,
-            messages: [],
+            messages: [], // Start empty - no welcome message stored
             concept: null,
             audience: null,
             createdAt: new Date().toISOString()
@@ -263,8 +273,8 @@ document.addEventListener('DOMContentLoaded', function() {
             messageContainer.innerHTML = '';
         }
         
-        // Add welcome message
-        addMessage("Hello! I'm TechTranslator. I can explain data science and machine learning concepts for insurance professionals. Try asking me about concepts like \"R-squared\", \"loss ratio\", or \"predictive models\". You can also specify your role (e.g., \"Explain R-squared to an underwriter\").", false);
+        // Add welcome message to display ONLY (don't store it)
+        addWelcomeMessage();
         
         // Update chat title
         updateChatTitle(chatSession.title);
@@ -277,6 +287,28 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Focus on input
         if (userInput) userInput.focus();
+    }
+    
+    /**
+     * Add welcome message to display without storing it
+     */
+    function addWelcomeMessage() {
+        if (!messageContainer) return;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'bot-message';
+        messageDiv.setAttribute('data-welcome', 'true'); // Mark as welcome message
+        
+        const textDiv = document.createElement('div');
+        textDiv.textContent = "Hello! I'm TechTranslator. I can explain data science and machine learning concepts for insurance professionals. Try asking me about concepts like \"R-squared\", \"loss ratio\", or \"predictive models\". You can also specify your role (e.g., \"Explain R-squared to an underwriter\").";
+        messageDiv.appendChild(textDiv);
+        
+        messageContainer.appendChild(messageDiv);
+        
+        // Auto-scroll to the bottom only if page is ready
+        if (pageLoaded && chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
     }
     
     /**
@@ -295,15 +327,13 @@ document.addEventListener('DOMContentLoaded', function() {
             messageContainer.innerHTML = '';
         }
         
-        // Load messages from this chat session
-        chatSession.messages.forEach(msg => {
-            addMessage(msg.content, msg.isUser, msg.extraInfo);
-        });
+        // Always show welcome message first (but don't store it)
+        addWelcomeMessage();
         
-        // If no messages, show welcome message
-        if (chatSession.messages.length === 0) {
-            addMessage("Hello! I'm TechTranslator. I can explain data science and machine learning concepts for insurance professionals. Try asking me about concepts like \"R-squared\", \"loss ratio\", or \"predictive models\". You can also specify your role (e.g., \"Explain R-squared to an underwriter\").", false);
-        }
+        // Load messages from this chat session (stored messages only)
+        chatSession.messages.forEach(msg => {
+            addMessageToDisplay(msg.content, msg.isUser, msg.extraInfo, false); // false = don't store
+        });
         
         // Update chat title
         updateChatTitle(chatSession.title);
@@ -383,9 +413,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     /**
-     * Add a message to the current chat
+     * Add a message to the current chat (stores the message)
      */
     function addMessage(message, isUser, extraInfo = null) {
+        // Add to display
+        addMessageToDisplay(message, isUser, extraInfo, true); // true = store the message
+    }
+    
+    /**
+     * Add message to display with option to store or not
+     */
+    function addMessageToDisplay(message, isUser, extraInfo = null, shouldStore = true) {
         if (!messageContainer) return;
         
         const messageDiv = document.createElement('div');
@@ -407,8 +445,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         messageContainer.appendChild(messageDiv);
         
-        // Save message to current chat session
-        if (chatSessions[currentConversationId]) {
+        // Only store the message if requested
+        if (shouldStore && chatSessions[currentConversationId]) {
             chatSessions[currentConversationId].messages.push({
                 content: message,
                 isUser: isUser,
@@ -458,6 +496,39 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     /**
+     * Get conversation context for follow-up questions
+     */
+    function getConversationContext() {
+        if (!chatSessions[currentConversationId]) return null;
+        
+        const session = chatSessions[currentConversationId];
+        
+        // If we have previous messages, try to get the last concept/audience
+        if (session.messages.length > 0) {
+            // Look for the most recent bot message with concept info
+            for (let i = session.messages.length - 1; i >= 0; i--) {
+                const msg = session.messages[i];
+                if (!msg.isUser && msg.extraInfo && msg.extraInfo.concept) {
+                    return {
+                        concept: msg.extraInfo.concept,
+                        audience: msg.extraInfo.audience
+                    };
+                }
+            }
+        }
+        
+        // Fall back to session-level concept/audience
+        if (session.concept) {
+            return {
+                concept: session.concept,
+                audience: session.audience
+            };
+        }
+        
+        return null;
+    }
+    
+    /**
      * Send a message to the API
      */
     async function sendMessage() {
@@ -479,8 +550,33 @@ document.addEventListener('DOMContentLoaded', function() {
             if (sendButton) sendButton.disabled = true;
             userInput.disabled = true;
             
+            // For follow-up questions, we need to provide context
+            // Check if this looks like a follow-up question
+            const followUpKeywords = ['example', 'more', 'explain', 'tell me', 'what about', 'can you', 'how about'];
+            const isFollowUp = followUpKeywords.some(keyword => message.toLowerCase().includes(keyword)) && message.length < 50;
+            
+            let queryToSend = message;
+            let contextualInfo = null;
+            
+            if (isFollowUp) {
+                // Get the previous conversation context
+                contextualInfo = getConversationContext();
+                if (contextualInfo) {
+                    // Enhance the query with context for better API response
+                    queryToSend = `${message} (continuing discussion about ${contextualInfo.concept} for ${contextualInfo.audience})`;
+                    console.log('Follow-up detected, enhanced query:', queryToSend);
+                }
+            }
+            
             // Call API - use the current conversation ID for follow-up context
-            const data = await apiService.sendQuery(message, currentConversationId);
+            const data = await apiService.sendQuery(queryToSend, currentConversationId);
+            
+            // For follow-up questions, preserve the context if API doesn't provide it
+            if (isFollowUp && contextualInfo && (!data.concept || data.concept === 'predictive-model')) {
+                console.log('Preserving context for follow-up question');
+                data.concept = contextualInfo.concept;
+                data.audience = contextualInfo.audience;
+            }
             
             // Remove loading indicator
             if (loadingIndicator) loadingIndicator.remove();
