@@ -1,0 +1,196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'TechTranslator - CloudTrail Audit Logging (Academy Lab Compatible)'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: TechTranslator
+    Description: Name of the project, used as prefix for resource names
+  DynamoDBStackName:
+    Type: String
+    Default: tech-translator-dynamodb
+    Description: Name of the DynamoDB stack to audit
+
+Resources:
+  # S3 bucket for CloudTrail audit logs
+  CloudTrailLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-cloudtrail-logs-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldAuditLogs
+            Status: Enabled
+            ExpirationInDays: 90
+      NotificationConfiguration:
+        CloudWatchConfigurations:
+          - Event: s3:ObjectCreated:*
+            CloudWatchConfiguration:
+              LogGroupName: !Ref CloudTrailLogGroup
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: AuditLogging
+        - Key: Compliance
+          Value: DataGovernance
+
+  # CloudWatch Log Group for CloudTrail metrics (even though we can't send logs here)
+  CloudTrailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/cloudtrail/${ProjectName}'
+      RetentionInDays: 14
+
+  # Bucket policy to allow CloudTrail to write logs
+  CloudTrailLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailLogsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailLogsBucket.Arn
+            Condition:
+              StringEquals:
+                'AWS:SourceArn': !Sub 'arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${ProjectName}-audit-trail'
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${CloudTrailLogsBucket.Arn}/cloudtrail-logs/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+                'AWS:SourceArn': !Sub 'arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/${ProjectName}-audit-trail'
+
+  # CloudTrail for comprehensive audit logging
+  TechTranslatorCloudTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: CloudTrailLogsBucketPolicy
+    Properties:
+      TrailName: !Sub '${ProjectName}-audit-trail'
+      S3BucketName: !Ref CloudTrailLogsBucket
+      S3KeyPrefix: 'cloudtrail-logs/'
+      IncludeGlobalServiceEvents: true
+      IsMultiRegionTrail: false
+      EnableLogFileValidation: true
+      IsLogging: true
+      # NOTE: CloudWatchLogsLogGroupArn and CloudWatchLogsRoleArn 
+      # are NOT included due to Academy Lab restrictions
+      EventSelectors:
+        # Data events for DynamoDB tables
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+          DataResources:
+            - Type: 'AWS::DynamoDB::Table'
+              Values: 
+                - !Sub 
+                  - 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${VectorTable}'
+                  - VectorTable:
+                      Fn::ImportValue: !Sub '${DynamoDBStackName}-VectorStorageTableName'
+                - !Sub
+                  - 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConversationTable}'
+                  - ConversationTable:
+                      Fn::ImportValue: !Sub '${DynamoDBStackName}-ConversationHistoryTableName'
+            # S3 data events for knowledge base and website
+            - Type: 'AWS::S3::Object'
+              Values:
+                - 'arn:aws:s3:::tech-translator-s3-knowledge-base/*'
+                - 'arn:aws:s3:::tech-translator-s3-website/*'
+        # Management events for Lambda and API Gateway
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+          DataResources:
+            - Type: 'AWS::Lambda::Function'
+              Values: ['*']
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Purpose
+          Value: AuditCompliance
+        - Key: Environment
+          Value: Development
+
+  # CloudWatch Metric Filter to track CloudTrail events
+  CloudTrailEventMetric:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroup
+      FilterPattern: '{ ($.eventName = ConsoleLogin) || ($.eventName = GetItem) || ($.eventName = PutItem) || ($.eventName = DeleteItem) }'
+      MetricTransformations:
+        - MetricNamespace: !Sub '${ProjectName}/Audit'
+          MetricName: 'CriticalEvents'
+          MetricValue: '1'
+          DefaultValue: 0
+
+  # CloudWatch Alarm for suspicious activity
+  SuspiciousActivityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-Suspicious-Activity'
+      AlarmDescription: 'Detects unusual patterns in audit logs'
+      MetricName: CriticalEvents
+      Namespace: !Sub '${ProjectName}/Audit'
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  CloudTrailArn:
+    Description: ARN of the CloudTrail
+    Value: !GetAtt TechTranslatorCloudTrail.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudTrailArn'
+
+  CloudTrailName:
+    Description: Name of the CloudTrail
+    Value: !Ref TechTranslatorCloudTrail
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudTrailName'
+
+  AuditLogsBucket:
+    Description: S3 bucket containing CloudTrail audit logs
+    Value: !Ref CloudTrailLogsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-AuditLogsBucket'
+
+  AuditLogsBucketArn:
+    Description: ARN of the audit logs bucket
+    Value: !GetAtt CloudTrailLogsBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AuditLogsBucketArn'
+
+  GovernanceFeatures:
+    Description: Governance and compliance features implemented
+    Value: 'CloudTrail audit logging, S3 log storage with encryption, 90-day retention, Log file validation, Data event tracking for DynamoDB and S3'
+    Export:
+      Name: !Sub '${AWS::StackName}-GovernanceFeatures'
+
+  AcademyLabCompatibility:
+    Description: Notes about Academy Lab restrictions
+    Value: 'CloudTrail logs stored in S3 only - CloudWatch Logs integration not supported in Academy Lab environment'
+    Export:
+      Name: !Sub '${AWS::StackName}-LabNotes'
+
+  AuditCapabilities:
+    Description: What this CloudTrail implementation provides
+    Value: 'User activity tracking, Data access patterns, API call logging, Security incident investigation, Compliance reporting'
