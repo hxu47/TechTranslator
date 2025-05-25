@@ -332,7 +332,7 @@ document.addEventListener('DOMContentLoaded', function() {
             localStorage.removeItem('techTranslatorChats');
             
             updateUIAfterLogout();
-            showSuccess('Logged out successfully');
+            //showSuccess('Logged out successfully');
         } catch (error) {
             console.error('Logout error:', error);
             // Still update UI even if logout fails
