@@ -49,7 +49,7 @@ Resources:
             Action: s3:GetBucketAcl
             Resource: !GetAtt CloudTrailLogsBucket.Arn
 
-  # CloudTrail for comprehensive microservice audit logging
+  # CloudTrail for DynamoDB audit logging (simplified)
   AuditTrail:
     Type: AWS::CloudTrail::Trail
     DependsOn: CloudTrailBucketPolicy
@@ -61,7 +61,7 @@ Resources:
       EnableLogFileValidation: true
       IsLogging: true
       EventSelectors:
-        # Track all DynamoDB operations (data layer debugging)
+        # Track DynamoDB operations only (core requirement for governance)
         - ReadWriteType: All
           IncludeManagementEvents: true
           DataResources:
@@ -75,12 +75,6 @@ Resources:
                   - 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConversationTable}'
                   - ConversationTable:
                       Fn::ImportValue: !Sub '${DynamoDBStackName}-ConversationHistoryTableName'
-            # Track Lambda invocations (service-to-service calls)
-            - Type: 'AWS::Lambda::Function'
-              Values: ['*']
-            # Track S3 knowledge base access
-            - Type: 'AWS::S3::Object'  
-              Values: ['arn:aws:s3:::tech-translator-s3-knowledge-base/*']
 
 Outputs:
   CloudTrailArn:
