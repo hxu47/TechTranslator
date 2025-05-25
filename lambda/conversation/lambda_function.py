@@ -1,10 +1,11 @@
-# conversation lambda - IMPROVED VERSION
+# conversation lambda - FIXED VERSION with Decimal handling
 import json
 import boto3
 import os
 import uuid
 from datetime import datetime, timedelta
 import logging
+from decimal import Decimal
 
 # Configure logging
 logger = logging.getLogger()
@@ -16,13 +17,20 @@ dynamodb = boto3.resource('dynamodb')
 # Get environment variables
 CONVERSATION_TABLE = os.environ.get('CONVERSATION_TABLE')
 
+class DecimalEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle Decimal objects from DynamoDB"""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super(DecimalEncoder, self).default(obj)
+
 def lambda_handler(event, context):
     """
     Lambda function for managing conversation history - ENHANCED for API Gateway
     Handles both direct invocations and API Gateway requests
     """
     try:
-        logger.info(f"Received event: {json.dumps(event)}")
+        logger.info(f"Received event: {json.dumps(event, default=str)}")
         
         # Check if this is an API Gateway request
         if 'httpMethod' in event:
@@ -40,7 +48,7 @@ def lambda_handler(event, context):
                 'Access-Control-Allow-Methods': 'OPTIONS,GET,POST',
                 'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
             },
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({'error': str(e)}, cls=DecimalEncoder)
         }
 
 def handle_api_gateway_request(event, context):
@@ -57,6 +65,10 @@ def handle_api_gateway_request(event, context):
         # Get conversation history
         result = get_conversation(user_id, conversation_id)
         
+        # Clean the conversations data to handle Decimal objects
+        conversations = result.get('conversations', [])
+        cleaned_conversations = clean_dynamodb_data(conversations)
+        
         return {
             'statusCode': result.get('statusCode', 200),
             'headers': {
@@ -66,9 +78,9 @@ def handle_api_gateway_request(event, context):
                 'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
             },
             'body': json.dumps({
-                'conversations': result.get('conversations', []),
+                'conversations': cleaned_conversations,
                 'user_id': user_id
-            })
+            }, cls=DecimalEncoder)
         }
         
     except Exception as e:
@@ -79,7 +91,7 @@ def handle_api_gateway_request(event, context):
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
             },
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({'error': str(e)}, cls=DecimalEncoder)
         }
 
 def handle_direct_invocation(event, context):
@@ -107,8 +119,25 @@ def handle_direct_invocation(event, context):
         logger.error(error_msg)
         return {
             'statusCode': 400,
-            'body': json.dumps({'error': error_msg})
+            'body': json.dumps({'error': error_msg}, cls=DecimalEncoder)
         }
+
+def clean_dynamodb_data(data):
+    """
+    Recursively clean DynamoDB data to handle Decimal objects
+    """
+    if isinstance(data, list):
+        return [clean_dynamodb_data(item) for item in data]
+    elif isinstance(data, dict):
+        return {key: clean_dynamodb_data(value) for key, value in data.items()}
+    elif isinstance(data, Decimal):
+        # Convert Decimal to int or float
+        if data % 1 == 0:
+            return int(data)
+        else:
+            return float(data)
+    else:
+        return data
 
 def extract_user_from_api_gateway_event(event):
     """Extract user ID from API Gateway Cognito authorizer context"""
@@ -117,18 +146,24 @@ def extract_user_from_api_gateway_event(event):
         request_context = event.get('requestContext', {})
         authorizer = request_context.get('authorizer', {})
         
+        logger.info(f"🔍 DEBUG: Authorizer context: {json.dumps(authorizer, default=str)}")
+        
         if authorizer:
             # Check for claims
             claims = authorizer.get('claims', {})
             if claims:
+                logger.info(f"✅ DEBUG: Found claims: {list(claims.keys())}")
+                
                 # Try email first
                 email = claims.get('email')
                 if email:
+                    logger.info(f"✅ DEBUG: Using email from claims: {email}")
                     return email.lower().strip()
                 
                 # Try cognito:username
                 username = claims.get('cognito:username')
                 if username:
+                    logger.info(f"✅ DEBUG: Using cognito:username: {username}")
                     if '@' in username:
                         return username.lower().strip()
                     else:
@@ -137,15 +172,18 @@ def extract_user_from_api_gateway_event(event):
                 # Try sub as last resort
                 sub = claims.get('sub')
                 if sub:
+                    logger.info(f"✅ DEBUG: Using sub: {sub}")
                     return f"{sub}@cognito.local"
             
             # Check direct fields
             email = authorizer.get('email')
             if email:
+                logger.info(f"✅ DEBUG: Using direct email: {email}")
                 return email.lower().strip()
             
             principal_id = authorizer.get('principalId')
             if principal_id:
+                logger.info(f"✅ DEBUG: Using principalId: {principal_id}")
                 if '@' in principal_id:
                     return principal_id.lower().strip()
                 else:
@@ -157,8 +195,11 @@ def extract_user_from_api_gateway_event(event):
         if source_ip != 'unknown':
             import hashlib
             session_hash = hashlib.md5(source_ip.encode()).hexdigest()[:12]
-            return f"guest_{session_hash}@anonymous.local"
+            fallback_user = f"guest_{session_hash}@anonymous.local"
+            logger.warning(f"⚠️ DEBUG: Using IP fallback: {fallback_user}")
+            return fallback_user
         
+        logger.warning("⚠️ DEBUG: Using default fallback user")
         return 'api_gateway_user@anonymous.local'
         
     except Exception as e:
@@ -199,7 +240,7 @@ def store_conversation(user_id, conversation_id, query, response, concept, audie
         return {
             'statusCode': 200,
             'conversation_id': conv_id,
-            'stored_item': item
+            'stored_item': clean_dynamodb_data(item)
         }
     except Exception as e:
         logger.error(f"Error storing conversation: {str(e)}", exc_info=True)
@@ -244,9 +285,12 @@ def get_conversation(user_id, conversation_id):
         
         logger.info(f"Retrieved {len(items)} conversation items")
         
+        # Clean the items before returning
+        cleaned_items = clean_dynamodb_data(items)
+        
         return {
             'statusCode': 200,
-            'conversations': items
+            'conversations': cleaned_items
         }
     except Exception as e:
         logger.error(f"Error retrieving conversation: {str(e)}", exc_info=True)
@@ -305,7 +349,7 @@ def get_conversation_context(user_id, conversation_id):
                 
                 return {
                     'statusCode': 200,
-                    'context': context
+                    'context': clean_dynamodb_data(context)
                 }
         
         # No valid context found
