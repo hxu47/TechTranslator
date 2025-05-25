@@ -274,11 +274,11 @@ def get_relevant_context_enhanced(concept, audience, query, max_items=3):
         logger.error(f"Error getting enhanced context: {str(e)}")
         return []
 
-# Fixed version of the response generation function in your main Lambda
+# Quick fix for your main Lambda function - replace the problematic functions
 
 def create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                       is_follow_up=False, follow_up_type=None):
-    """Create structured fallback responses when FLAN-T5 fails - FIXED VERSION"""
+    """Create clean fallback responses without redundant titles"""
     concept = concept_and_audience['concept'].replace('-', ' ').title()
     audience = concept_and_audience['audience']
     
@@ -288,47 +288,51 @@ def create_structured_fallback_response(query, concept_and_audience, relevant_ch
     # Get the best matching chunk
     best_chunk = relevant_chunks[0]['item']
     
-    # Create structured response based on follow-up type
+    # Create clean response without redundant titles
     if is_follow_up and follow_up_type:
         if follow_up_type == 'example':
             return create_example_response(concept, audience, best_chunk)
         elif follow_up_type == 'scenario':
             return create_scenario_response(concept, audience, best_chunk, query)
         else:
-            # Clean up the chunk text - remove redundant prefixes
+            # Just return the clean content without extra formatting
             clean_text = clean_chunk_text(best_chunk['text'])
-            return f"**{concept} for {audience.title()}s**\n\n{clean_text[:300]}..."
+            return clean_text[:400] + ("..." if len(clean_text) > 400 else "")
     else:
-        # Initial explanation - FIXED VERSION
+        # Initial explanation - CLEAN VERSION (no redundant titles)
         clean_text = clean_chunk_text(best_chunk.get('text', 'Information not available'))
         
-        response = f"**{concept} for Insurance {audience.title()}s**\n\n{clean_text[:400]}"
+        # Just return the content directly - no extra title formatting
+        response = clean_text[:400] + ("..." if len(clean_text) > 400 else "")
         
-        # Add audience-specific call to action (without redundant info)
-        if audience == 'underwriter':
-            response += "\n\nThis directly impacts your risk assessment and pricing decisions."
-        elif audience == 'actuary':
-            response += "\n\nConsider this in your model validation and regulatory reporting."
-        elif audience == 'executive':
-            response += "\n\nThis affects your competitive positioning and profitability."
+        # Add audience-specific context if the response is too generic
+        if len(response) < 100:  # Only add context if response is very short
+            if audience == 'underwriter':
+                response += " This directly impacts your risk assessment and pricing decisions."
+            elif audience == 'actuary':
+                response += " Consider this in your model validation and regulatory reporting."
+            elif audience == 'executive':
+                response += " This affects your competitive positioning and profitability."
         
         return response
 
 def clean_chunk_text(text):
-    """Clean up chunk text by removing redundant prefixes and formatting"""
+    """Clean up chunk text by removing ALL redundant prefixes and formatting"""
     if not text:
         return ""
     
-    # Remove common prefixes that create awkward formatting
+    # Remove the problematic prefixes that are creating the issue
     prefixes_to_remove = [
         "Action guidance: ",
         "**Loss Ratio for Insurance Executives** ",
-        "**R-squared for Insurance Executives** ",
-        "**Predictive Model for Insurance Executives** ",
         "**Loss Ratio for Insurance Underwriters** ",
-        "**R-squared for Insurance Underwriters** ",
         "**Loss Ratio for Insurance Actuaries** ",
-        "**R-squared for Insurance Actuaries** "
+        "**R-squared for Insurance Executives** ",
+        "**R-squared for Insurance Underwriters** ", 
+        "**R-squared for Insurance Actuaries** ",
+        "**Predictive Model for Insurance Executives** ",
+        "**Predictive Model for Insurance Underwriters** ",
+        "**Predictive Model for Insurance Actuaries** ",
     ]
     
     cleaned_text = text
@@ -337,40 +341,42 @@ def clean_chunk_text(text):
             cleaned_text = cleaned_text[len(prefix):].strip()
             break
     
-    # Also clean up any remaining markdown formatting issues
-    cleaned_text = cleaned_text.replace("**", "").strip()
+    # Remove any remaining markdown bold formatting
+    cleaned_text = cleaned_text.replace("**", "")
+    
+    # Remove double spaces and clean up
+    cleaned_text = " ".join(cleaned_text.split())
     
     return cleaned_text
 
-# Also update the main response generation function
+# Also update the FLAN-T5 response generation to be cleaner
 def generate_response_with_enhanced_prompts(query, concept_and_audience, relevant_chunks, 
                                           is_follow_up=False, follow_up_type=None, conversation_context=None):
-    """Enhanced response generation with FLAN-T5 optimized prompts - FIXED VERSION"""
+    """Enhanced response generation - CLEAN VERSION"""
     try:
         concept = concept_and_audience['concept']
         audience = concept_and_audience['audience']
         concept_display = concept.replace('-', ' ').title()
         
-        # Build context from relevant chunks (optimized for FLAN-T5)
+        # Build clean context from relevant chunks
         context_text = ""
         if relevant_chunks:
-            for chunk in relevant_chunks[:2]:  # Only top 2 for FLAN-T5
+            for chunk in relevant_chunks[:2]:
                 item_text = chunk['item']['text']
-                # Clean the text before using it
+                # Clean the text before using it in prompts
                 item_text = clean_chunk_text(item_text)
-                # Truncate long text to keep context manageable
                 if len(item_text) > 200:
                     item_text = item_text[:200] + "..."
                 context_text += f"{item_text}\n\n"
         
-        # Generate role-specific, instruction-based prompts for FLAN-T5
+        # Generate prompts
         if is_follow_up and follow_up_type:
             prompt = create_follow_up_prompt(query, concept_display, audience, follow_up_type, 
                                            context_text, conversation_context)
         else:
             prompt = create_initial_prompt(query, concept_display, audience, context_text)
         
-        # FLAN-T5 optimized parameters
+        # FLAN-T5 parameters
         payload = {
             "inputs": prompt,
             "parameters": {
@@ -382,8 +388,6 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
             }
         }
         
-        logger.info(f"Calling FLAN-T5 with prompt type: {'follow_up_' + follow_up_type if is_follow_up else 'initial'}")
-        
         # Call SageMaker endpoint
         response = sagemaker_runtime.invoke_endpoint(
             EndpointName=SAGEMAKER_ENDPOINT,
@@ -393,7 +397,7 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
         
         result = json.loads(response['Body'].read().decode())
         
-        # Handle FLAN-T5 response format
+        # Handle response format
         if isinstance(result, list) and len(result) > 0:
             if isinstance(result[0], dict):
                 generated_text = result[0].get('generated_text', '')
@@ -405,23 +409,20 @@ def generate_response_with_enhanced_prompts(query, concept_and_audience, relevan
             generated_text = str(result)
         
         # Clean up the response
-        generated_text = generated_text.strip()
+        generated_text = clean_chunk_text(generated_text.strip())
         
-        # Enhanced fallback with better responses
+        # Use fallback if response is too short
         if not generated_text or len(generated_text) < 30:
-            logger.warning("FLAN-T5 response too short, using enhanced fallback")
             return create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                                      is_follow_up, follow_up_type)
         
-        # Clean the final response too
-        return clean_chunk_text(generated_text)
+        return generated_text
         
     except Exception as e:
-        logger.error(f"Enhanced prompt generation error: {str(e)}")
+        logger.error(f"Response generation error: {str(e)}")
         return create_structured_fallback_response(query, concept_and_audience, relevant_chunks, 
                                                  is_follow_up, follow_up_type)
 
-                                                 
 def create_initial_prompt(query, concept_display, audience, context_text):
     """Create optimized initial explanation prompts for FLAN-T5"""
     
