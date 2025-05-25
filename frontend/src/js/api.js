@@ -1,6 +1,6 @@
 /**
- * API service for TechTranslator
- * Handles all the API calls to the backend
+ * API service for TechTranslator - DEBUG VERSION
+ * Enhanced with detailed authentication debugging
  */
 class ApiService {
     constructor() {
@@ -14,13 +14,40 @@ class ApiService {
      * @param {string} token - JWT token
      */
     setToken(token) {
+        console.log('🔐 DEBUG: Setting token:', token ? `${token.substring(0, 20)}...` : 'null');
         this.token = token;
+        
+        // Debug: Parse and log JWT payload (without exposing sensitive info)
+        if (token) {
+            try {
+                const parts = token.split('.');
+                if (parts.length === 3) {
+                    const payload = JSON.parse(atob(parts[1]));
+                    console.log('🔍 DEBUG: JWT payload preview:', {
+                        email: payload.email,
+                        'cognito:username': payload['cognito:username'],
+                        sub: payload.sub,
+                        exp: payload.exp,
+                        iss: payload.iss
+                    });
+                    
+                    // Check if token is expired
+                    const now = Math.floor(Date.now() / 1000);
+                    if (payload.exp < now) {
+                        console.warn('⚠️ DEBUG: Token appears to be expired!');
+                    }
+                }
+            } catch (e) {
+                console.error('❌ DEBUG: Error parsing JWT token:', e);
+            }
+        }
     }
 
     /**
      * Clear the authentication token
      */
     clearToken() {
+        console.log('🔐 DEBUG: Clearing token');
         this.token = null;
     }
 
@@ -35,7 +62,12 @@ class ApiService {
         
         if (this.token) {
             headers['Authorization'] = `Bearer ${this.token}`;
+            console.log('🔐 DEBUG: Adding Authorization header:', `Bearer ${this.token.substring(0, 20)}...`);
+        } else {
+            console.warn('⚠️ DEBUG: No token available - request will be unauthenticated');
         }
+        
+        console.log('📤 DEBUG: Request headers:', Object.keys(headers));
         
         return headers;
     }
@@ -48,18 +80,37 @@ class ApiService {
      */
     async sendQuery(query, conversationId = null) {
         try {
-            console.log('Sending query:', { query, conversationId, apiUrl: this.apiUrl });
+            console.log('📤 DEBUG: Sending query:', { 
+                query, 
+                conversationId, 
+                apiUrl: this.apiUrl,
+                hasToken: !!this.token 
+            });
+            
+            const headers = this.getHeaders();
+            const body = JSON.stringify({ 
+                query,
+                conversation_id: conversationId 
+            });
+            
+            console.log('📤 DEBUG: Full request details:', {
+                url: `${this.apiUrl}/query`,
+                method: 'POST',
+                headers: headers,
+                bodyLength: body.length
+            });
             
             const response = await fetch(`${this.apiUrl}/query`, {
                 method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify({ 
-                    query,
-                    conversation_id: conversationId 
-                })
+                headers: headers,
+                body: body
             });
             
-            console.log('Response status:', response.status);
+            console.log('📥 DEBUG: Response received:', {
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries())
+            });
             
             if (!response.ok) {
                 let errorData;
@@ -70,10 +121,13 @@ class ApiService {
                     errorData = { error: `Request failed with status ${response.status}` };
                 }
                 
-                console.error('API Error:', errorData);
+                console.error('❌ DEBUG: API Error:', errorData);
                 
                 // Handle specific error cases
-                if (response.status === 503) {
+                if (response.status === 401) {
+                    console.error('🔐 DEBUG: Authentication failed - token might be invalid or expired');
+                    throw new Error('Authentication failed. Please log in again.');
+                } else if (response.status === 503) {
                     throw new Error('AI service temporarily unavailable. Please ensure the SageMaker endpoint is deployed and configured.');
                 } else if (response.status === 500) {
                     throw new Error(errorData.error || 'Internal server error occurred. Please try again.');
@@ -85,7 +139,12 @@ class ApiService {
             }
             
             const data = await response.json();
-            console.log('API Response:', data);
+            console.log('📥 DEBUG: API Response preview:', {
+                hasResponse: !!data.response,
+                concept: data.concept,
+                audience: data.audience,
+                conversationId: data.conversation_id
+            });
             
             // Validate response structure
             if (!data.response) {
@@ -95,7 +154,7 @@ class ApiService {
             return data;
             
         } catch (error) {
-            console.error('Error sending query:', error);
+            console.error('❌ DEBUG: Error in sendQuery:', error);
             
             // Handle network errors
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
@@ -114,29 +173,11 @@ class ApiService {
      */
     async getConversations(conversationId = null) {
         try {
-            // Since we're not using authentication for now, return empty conversations
-            // This can be implemented later when Cognito authentication is fully enabled
-            
-            console.log('Getting conversations (not implemented without auth)');
+            console.log('📤 DEBUG: Getting conversations (not fully implemented without auth endpoint)');
             return { conversations: [] };
             
-            /* 
-            // This is what it would look like with auth enabled:
-            const queryParams = conversationId ? `?conversation_id=${conversationId}` : '';
-            const response = await fetch(`${this.apiUrl}/conversation${queryParams}`, {
-                method: 'GET',
-                headers: this.getHeaders()
-            });
-            
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `API request failed: ${response.statusText}`);
-            }
-            
-            return await response.json();
-            */
         } catch (error) {
-            console.error('Error getting conversations:', error);
+            console.error('❌ DEBUG: Error getting conversations:', error);
             throw error;
         }
     }
@@ -147,11 +188,13 @@ class ApiService {
      */
     async testConnection() {
         try {
+            console.log('🧪 DEBUG: Testing API connection...');
             // Simple test query to check if API is working
             const testResponse = await this.sendQuery('test connection');
+            console.log('✅ DEBUG: API connection test passed');
             return true;
         } catch (error) {
-            console.error('API connection test failed:', error);
+            console.error('❌ DEBUG: API connection test failed:', error);
             return false;
         }
     }
