@@ -416,22 +416,43 @@ document.addEventListener('DOMContentLoaded', function() {
      * Update UI after logout
      */
     function updateUIAfterLogout() {
-        console.log('Updating UI after logout - DETAILED');
+        console.log('Updating UI after logout - FORCEFUL VERSION');
         
-        // Force hide chat section
+        // Force hide chat section with multiple methods
         if (chatSection) {
             console.log('Hiding chat section');
-            chatSection.style.display = 'none';
+            chatSection.style.display = 'none !important';
+            chatSection.style.visibility = 'hidden';
+            chatSection.setAttribute('style', 'display: none !important;');
         } else {
             console.log('ERROR: chatSection not found');
         }
         
-        // Force show auth section
+        // Force show auth section with multiple methods
         if (authSection) {
             console.log('Showing auth section');
-            authSection.style.display = 'block';
+            authSection.style.display = 'block !important';
+            authSection.style.visibility = 'visible';
+            authSection.setAttribute('style', 'display: block !important;');
         } else {
             console.log('ERROR: authSection not found');
+        }
+        
+        // Double-check the elements exist
+        const authCheck = document.getElementById('authSection');
+        const chatCheck = document.getElementById('chatSection');
+        
+        console.log('Auth section exists:', !!authCheck);
+        console.log('Chat section exists:', !!chatCheck);
+        
+        if (authCheck) {
+            authCheck.style.display = 'block';
+            console.log('Auth section forced visible');
+        }
+        
+        if (chatCheck) {
+            chatCheck.style.display = 'none';
+            console.log('Chat section forced hidden');
         }
         
         // Show login form specifically
