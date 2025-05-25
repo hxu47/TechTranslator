@@ -43,8 +43,6 @@ Resources:
             ManagedRuleGroupStatement:
               VendorName: AWS
               Name: AWSManagedRulesCommonRuleSet
-          Action:
-            Block: {}
           OverrideAction:
             None: {}
           VisibilityConfig:
@@ -59,8 +57,6 @@ Resources:
             ManagedRuleGroupStatement:
               VendorName: AWS
               Name: AWSManagedRulesKnownBadInputsRuleSet
-          Action:
-            Block: {}
           OverrideAction:
             None: {}
           VisibilityConfig:
