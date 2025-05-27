@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'TechTranslator - Simple CloudWatch Monitoring'
+Description: 'TechTranslator - CloudWatch Monitoring with SageMaker Integration'
 
 Parameters:
   ProjectName:
@@ -18,9 +18,15 @@ Parameters:
     Type: String
     Default: tech-translator-dynamodb
     Description: Name of the DynamoDB stack
+  SageMakerEndpointName:
+    Type: String
+    Description: Name of your deployed SageMaker endpoint
+    Default: "NOT_CONFIGURED"
+
+Conditions:
+  HasSageMakerEndpoint: !Not [!Equals [!Ref SageMakerEndpointName, "NOT_CONFIGURED"]]
 
 Resources:
-  # Simple CloudWatch Dashboard
   TechTranslatorDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
@@ -86,53 +92,32 @@ Resources:
                 "title": "DynamoDB Usage",
                 "period": 300
               }
-            }
+            }${SageMakerWidget}
           ]
         }
 
-  # Simple alarms for key metrics
-  LambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${ProjectName}-Lambda-Errors'
-      AlarmDescription: 'Lambda function has errors'
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 3
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: 
-            Fn::ImportValue: !Sub '${LambdaStackName}-MainLambdaFunctionName'
-
-  ApiLatencyAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${ProjectName}-API-Latency'
-      AlarmDescription: 'API Gateway latency is high'
-      MetricName: Latency
-      Namespace: AWS/ApiGateway
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 5000
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: ApiName
-          Value: !Sub '${ProjectName}-api'
-
-Outputs:
-  DashboardUrl:
-    Description: CloudWatch Dashboard URL
-    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-Dashboard'
-    Export:
-      Name: !Sub '${AWS::StackName}-DashboardUrl'
-
-  MonitoringFeatures:
-    Description: Monitoring features implemented
-    Value: 'CloudWatch Dashboard, Lambda Error Alarms, API Latency Alarms, DynamoDB Metrics'
-    Export:
-      Name: !Sub '${AWS::StackName}-MonitoringFeatures'
+  # Add conditional SageMaker widget
+  SageMakerWidget: !If
+    - HasSageMakerEndpoint
+    - !Sub |
+        ,
+        {
+          "type": "metric",
+          "x": 0,
+          "y": 12,
+          "width": 24,
+          "height": 6,
+          "properties": {
+            "metrics": [
+              [ "AWS/SageMaker", "Invocations", "EndpointName", "${SageMakerEndpointName}" ],
+              [ ".", "ModelLatency", ".", "." ],
+              [ ".", "OverheadLatency", ".", "." ]
+            ],
+            "view": "timeSeries",
+            "stacked": false,
+            "region": "${AWS::Region}",
+            "title": "SageMaker Endpoint Performance",
+            "period": 300
+          }
+        }
+    - ""

@@ -25,7 +25,7 @@ echo -e "${BLUE}🚀 Starting deployment of $PROJECT_NAME with Authentication, M
 echo -e "${BLUE}================================================${NC}"
 
 # 1. Deploy S3 resources
-echo -e "${YELLOW}📦 Step 1/7: Deploying S3 resources...${NC}"
+echo -e "${YELLOW}📦 Step 1/9: Deploying S3 resources...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/s3.yaml \
   --stack-name "${STACK_NAME_PREFIX}-s3" \
@@ -43,7 +43,7 @@ echo -e "${GREEN}✅ S3 resources deployed${NC}"
 echo -e "   Website Bucket: $S3_BUCKET_NAME"
 
 # 2. Deploy DynamoDB resources
-echo -e "${YELLOW}📦 Step 2/7: Deploying DynamoDB tables...${NC}"
+echo -e "${YELLOW}📦 Step 2/9: Deploying DynamoDB tables...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/dynamodb.yaml \
   --stack-name "${STACK_NAME_PREFIX}-dynamodb" \
@@ -53,7 +53,7 @@ aws cloudformation deploy \
 echo -e "${GREEN}✅ DynamoDB tables deployed${NC}"
 
 # 3. Deploy Cognito resources
-echo -e "${YELLOW}📦 Step 3/7: Deploying Cognito authentication resources...${NC}"
+echo -e "${YELLOW}📦 Step 3/9: Deploying Cognito authentication resources...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/cognito.yaml \
   --stack-name "${STACK_NAME_PREFIX}-cognito" \
@@ -89,7 +89,7 @@ echo -e "   User Pool Client ID: $USER_POOL_CLIENT_ID"
 echo -e "   Identity Pool ID: $IDENTITY_POOL_ID"
 
 # 4. Create/check Lambda code bucket and upload Lambda code
-echo -e "${YELLOW}📦 Step 4/7: Setting up Lambda code...${NC}"
+echo -e "${YELLOW}📦 Step 4/9: Setting up Lambda code...${NC}"
 
 # Check if the bucket exists
 if aws s3api head-bucket --bucket $LAMBDA_CODE_BUCKET 2>/dev/null; then
@@ -106,7 +106,7 @@ echo -e "${YELLOW}🔧 Packaging Lambda functions...${NC}"
 echo -e "${GREEN}✅ Lambda code packaged and uploaded${NC}"
 
 # 5. Deploy Lambda functions
-echo -e "${YELLOW}📦 Step 5/7: Deploying Lambda functions...${NC}"
+echo -e "${YELLOW}📦 Step 5/9: Deploying Lambda functions...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/lambda.yaml \
   --stack-name "${STACK_NAME_PREFIX}-lambda" \
@@ -165,6 +165,7 @@ aws cloudformation deploy \
     LambdaStackName="${STACK_NAME_PREFIX}-lambda" \
     ApiStackName="${STACK_NAME_PREFIX}-api" \
     DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
+    SageMakerEndpointName="NOT_CONFIGURED" \
   --region $REGION
 
 # Get CloudWatch Dashboard URL

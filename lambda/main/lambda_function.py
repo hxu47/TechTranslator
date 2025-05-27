@@ -252,8 +252,6 @@ def extract_user_email_from_cognito(event):
         logger.error(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         return 'exception@anonymous.local'
         
-# Keep all the other functions exactly the same...
-# (extract_concept_and_audience, detect_follow_up_question, etc.)
 
 def extract_concept_and_audience(query):
     """Enhanced concept and audience extraction"""
