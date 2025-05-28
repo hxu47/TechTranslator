@@ -178,7 +178,19 @@ DASHBOARD_URL=$(aws cloudformation describe-stacks \
 echo -e "${GREEN}✅ CloudWatch monitoring deployed${NC}"
 echo -e "   Dashboard URL: $DASHBOARD_URL"
 
-# 8. Deploy frontend with configuration
+# 9. Deploy CloudTrail Audit Logging
+echo -e "${YELLOW}📦 Step 9/9: Deploying CloudTrail audit logging...${NC}"
+aws cloudformation deploy \
+  --template-file infrastructure/cloudtrail.yaml \
+  --stack-name "${STACK_NAME_PREFIX}-audit" \
+  --parameter-overrides \
+    ProjectName=$PROJECT_NAME \
+    DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
+  --region $REGION
+
+echo -e "${GREEN}✅ CloudTrail audit logging deployed${NC}"
+
+# 10. Deploy frontend with configuration
 echo -e "${YELLOW}🌐 Deploying frontend with authentication configuration...${NC}"
 ./upload-frontend.sh
 
