@@ -22,7 +22,7 @@ Parameters:
     Type: String
     Description: Name of your deployed SageMaker endpoint
     Default: "NOT_CONFIGURED"
-  # NEW: Governance thresholds
+  # Governance thresholds
   DailyCostThreshold:
     Type: Number
     Default: 10
@@ -36,95 +36,175 @@ Parameters:
     Default: 20
     Description: Number of auth failures in 10 minutes before alerting
 
+# Conditions for conditional resources
+Conditions:
+  SageMakerConfigured: !Not [!Equals [!Ref SageMakerEndpointName, "NOT_CONFIGURED"]]
+
 Resources:
-  # Existing CloudWatch Dashboard
+  # CloudWatch Dashboard - FIXED JSON structure
   TechTranslatorDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
       DashboardName: !Sub '${ProjectName}-Dashboard'
-      DashboardBody: !Sub |
-        {
-          "widgets": [
-            {
-              "type": "metric",
-              "x": 0,
-              "y": 0,
-              "width": 12,
-              "height": 6,
-              "properties": {
-                "metrics": [
-                  [ "AWS/Lambda", "Duration", "FunctionName", "${LambdaStackName}-main" ],
-                  [ ".", "Errors", ".", "." ],
-                  [ ".", "Invocations", ".", "." ]
-                ],
-                "view": "timeSeries",
-                "stacked": false,
-                "region": "${AWS::Region}",
-                "title": "Lambda Performance",
-                "period": 300
+      DashboardBody: !If
+        - SageMakerConfigured
+        - !Sub |
+          {
+            "widgets": [
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/Lambda", "Duration", "FunctionName", "${LambdaStackName}-main" ],
+                    [ ".", "Errors", ".", "." ],
+                    [ ".", "Invocations", ".", "." ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "Lambda Performance",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/ApiGateway", "Count", "ApiName", "${ProjectName}-api" ],
+                    [ ".", "Latency", ".", "." ],
+                    [ ".", "4XXError", ".", "." ],
+                    [ ".", "5XXError", ".", "." ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "API Gateway Metrics",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 6,
+                "width": 24,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${DynamoDBStackName}-vector-storage" ],
+                    [ ".", "ConsumedWriteCapacityUnits", ".", "." ],
+                    [ ".", "ConsumedReadCapacityUnits", "TableName", "${DynamoDBStackName}-conversation-history" ],
+                    [ ".", "ConsumedWriteCapacityUnits", ".", "." ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "DynamoDB Usage",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 12,
+                "width": 24,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/SageMaker", "Invocations", "EndpointName", "${SageMakerEndpointName}" ],
+                    [ ".", "ModelLatency", ".", "." ],
+                    [ ".", "OverheadLatency", ".", "." ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "SageMaker Endpoint Performance (${SageMakerEndpointName})",
+                  "period": 300
+                }
               }
-            },
-            {
-              "type": "metric",
-              "x": 12,
-              "y": 0,
-              "width": 12,
-              "height": 6,
-              "properties": {
-                "metrics": [
-                  [ "AWS/ApiGateway", "Count", "ApiName", "${ProjectName}-api" ],
-                  [ ".", "Latency", ".", "." ],
-                  [ ".", "4XXError", ".", "." ],
-                  [ ".", "5XXError", ".", "." ]
-                ],
-                "view": "timeSeries",
-                "stacked": false,
-                "region": "${AWS::Region}",
-                "title": "API Gateway Metrics",
-                "period": 300
+            ]
+          }
+        - !Sub |
+          {
+            "widgets": [
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/Lambda", "Duration", "FunctionName", "${LambdaStackName}-main" ],
+                    [ ".", "Errors", ".", "." ],
+                    [ ".", "Invocations", ".", "." ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "Lambda Performance",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/ApiGateway", "Count", "ApiName", "${ProjectName}-api" ],
+                    [ ".", "Latency", ".", "." ],
+                    [ ".", "4XXError", ".", "." ],
+                    [ ".", "5XXError", ".", "." ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "API Gateway Metrics",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 6,
+                "width": 24,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${DynamoDBStackName}-vector-storage" ],
+                    [ ".", "ConsumedWriteCapacityUnits", ".", "." ],
+                    [ ".", "ConsumedReadCapacityUnits", "TableName", "${DynamoDBStackName}-conversation-history" ],
+                    [ ".", "ConsumedWriteCapacityUnits", ".", "." ]
+                  ],
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "region": "${AWS::Region}",
+                  "title": "DynamoDB Usage",
+                  "period": 300
+                }
+              },
+              {
+                "type": "text",
+                "x": 0,
+                "y": 12,
+                "width": 24,
+                "height": 3,
+                "properties": {
+                  "markdown": "## SageMaker Endpoint Not Configured\n\nDeploy a SageMaker endpoint and update the monitoring stack to see AI model metrics here.\n\n**Current Status:** ${SageMakerEndpointName}"
+                }
               }
-            },
-            {
-              "type": "metric",
-              "x": 0,
-              "y": 6,
-              "width": 24,
-              "height": 6,
-              "properties": {
-                "metrics": [
-                  [ "AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${DynamoDBStackName}-vector-storage" ],
-                  [ ".", "ConsumedWriteCapacityUnits", ".", "." ],
-                  [ ".", "ConsumedReadCapacityUnits", "TableName", "${DynamoDBStackName}-conversation-history" ],
-                  [ ".", "ConsumedWriteCapacityUnits", ".", "." ]
-                ],
-                "view": "timeSeries",
-                "stacked": false,
-                "region": "${AWS::Region}",
-                "title": "DynamoDB Usage",
-                "period": 300
-              }
-            },
-            {
-              "type": "metric",
-              "x": 0,
-              "y": 12,
-              "width": 24,
-              "height": 6,
-              "properties": {
-                "metrics": [
-                  [ "AWS/SageMaker", "Invocations", "EndpointName", "${SageMakerEndpointName}" ],
-                  [ ".", "ModelLatency", ".", "." ],
-                  [ ".", "OverheadLatency", ".", "." ]
-                ],
-                "view": "timeSeries",
-                "stacked": false,
-                "region": "${AWS::Region}",
-                "title": "SageMaker Endpoint Performance (${SageMakerEndpointName})",
-                "period": 300
-              }
-            }
-          ]
-        }
+            ]
+          }
 
   # EXISTING ALARMS
   LambdaErrorAlarm:
@@ -161,7 +241,7 @@ Resources:
           Value: !Sub '${ProjectName}-api'
 
   # ==========================================
-  # NEW: GOVERNANCE ALARMS SECTION
+  # GOVERNANCE ALARMS SECTION
   # ==========================================
 
   # Cost Governance: SageMaker spending monitoring
@@ -257,10 +337,6 @@ Resources:
           Value: !Ref SageMakerEndpointName
       TreatMissingData: notBreaching
 
-# Conditions for conditional resources
-Conditions:
-  SageMakerConfigured: !Not [!Equals [!Ref SageMakerEndpointName, "NOT_CONFIGURED"]]
-
 Outputs:
   DashboardUrl:
     Description: CloudWatch Dashboard URL
@@ -278,7 +354,7 @@ Outputs:
     Description: Currently configured SageMaker endpoint for monitoring
     Value: !Ref SageMakerEndpointName
 
-  # NEW: Governance outputs
+  # Governance outputs
   GovernanceAlarms:
     Description: Governance alarms implemented
     Value: 'Cost monitoring, Traffic analysis, Authentication security, Data usage governance'
