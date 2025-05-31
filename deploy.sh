@@ -165,7 +165,10 @@ aws cloudformation deploy \
     LambdaStackName="${STACK_NAME_PREFIX}-lambda" \
     ApiStackName="${STACK_NAME_PREFIX}-api" \
     DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
-    SageMakerEndpointName="NOT_CONFIGURED" \
+    SageMakerEndpointName="$CURRENT_ENDPOINT" \
+    DailyCostThreshold=12 \
+    HourlyRequestThreshold=400 \
+    AuthFailureThreshold=20 \
   --region $REGION
 
 # Get CloudWatch Dashboard URL

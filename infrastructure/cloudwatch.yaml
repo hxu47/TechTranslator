@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'TechTranslator - CloudWatch Monitoring with SageMaker Integration'
+Description: 'TechTranslator - CloudWatch Monitoring with SageMaker Integration and Governance Alarms'
 
 Parameters:
   ProjectName:
@@ -22,9 +22,22 @@ Parameters:
     Type: String
     Description: Name of your deployed SageMaker endpoint
     Default: "NOT_CONFIGURED"
+  # NEW: Governance thresholds
+  DailyCostThreshold:
+    Type: Number
+    Default: 10
+    Description: Daily cost threshold in USD for SageMaker alerts
+  HourlyRequestThreshold:
+    Type: Number
+    Default: 500
+    Description: Hourly request threshold for unusual traffic detection
+  AuthFailureThreshold:
+    Type: Number
+    Default: 20
+    Description: Number of auth failures in 10 minutes before alerting
 
 Resources:
-  # Simple CloudWatch Dashboard - Always includes SageMaker widget
+  # Existing CloudWatch Dashboard
   TechTranslatorDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
@@ -113,7 +126,7 @@ Resources:
           ]
         }
 
-  # Simple alarms for key metrics (existing ones)
+  # EXISTING ALARMS
   LambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -147,6 +160,107 @@ Resources:
         - Name: ApiName
           Value: !Sub '${ProjectName}-api'
 
+  # ==========================================
+  # NEW: GOVERNANCE ALARMS SECTION
+  # ==========================================
+
+  # Cost Governance: SageMaker spending monitoring
+  SageMakerCostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-SageMaker-Cost-Alert'
+      AlarmDescription: !Sub 'SageMaker endpoint costs exceeding ${DailyCostThreshold} USD/day threshold'
+      MetricName: EstimatedCharges
+      Namespace: AWS/Billing
+      Statistic: Maximum
+      Period: 86400  # Daily check
+      EvaluationPeriods: 1
+      Threshold: !Ref DailyCostThreshold
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Currency
+          Value: USD
+        - Name: ServiceName
+          Value: AmazonSageMaker
+      TreatMissingData: notBreaching
+
+  # Operational Governance: Unusual traffic patterns
+  UnusualTrafficAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-Unusual-Traffic'
+      AlarmDescription: !Sub 'Unusual traffic detected - over ${HourlyRequestThreshold} requests/hour'
+      MetricName: Count
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 3600  # Hourly
+      EvaluationPeriods: 1
+      Threshold: !Ref HourlyRequestThreshold
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub '${ProjectName}-api'
+      TreatMissingData: notBreaching
+
+  # Security Governance: Authentication failure monitoring
+  AuthFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-Auth-Failures'
+      AlarmDescription: !Sub 'High authentication failures detected - over ${AuthFailureThreshold} failures in 10 minutes'
+      MetricName: 4XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300  # 5 minutes
+      EvaluationPeriods: 2  # 10 minutes total
+      Threshold: !Ref AuthFailureThreshold
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub '${ProjectName}-api'
+      TreatMissingData: notBreaching
+
+  # Data Governance: Excessive DynamoDB usage 
+  DynamoDBUsageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-DynamoDB-High-Usage'
+      AlarmDescription: 'DynamoDB read capacity exceeding normal patterns'
+      MetricName: ConsumedReadCapacityUnits
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 3600  # Hourly
+      EvaluationPeriods: 1
+      Threshold: 1000  # Adjust based on your normal usage
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: TableName
+          Value: !Sub '${DynamoDBStackName}-vector-storage'
+      TreatMissingData: notBreaching
+
+  # SageMaker Governance: Endpoint health monitoring (only if endpoint is configured)
+  SageMakerEndpointErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: SageMakerConfigured
+    Properties:
+      AlarmName: !Sub '${ProjectName}-SageMaker-Errors'
+      AlarmDescription: 'SageMaker endpoint experiencing errors'
+      MetricName: ModelLatency
+      Namespace: AWS/SageMaker
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 10000  # 10 seconds
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: EndpointName
+          Value: !Ref SageMakerEndpointName
+      TreatMissingData: notBreaching
+
+# Conditions for conditional resources
+Conditions:
+  SageMakerConfigured: !Not [!Equals [!Ref SageMakerEndpointName, "NOT_CONFIGURED"]]
+
 Outputs:
   DashboardUrl:
     Description: CloudWatch Dashboard URL
@@ -156,10 +270,21 @@ Outputs:
 
   MonitoringFeatures:
     Description: Monitoring features implemented
-    Value: 'CloudWatch Dashboard, Lambda Error Alarms, API Latency Alarms, DynamoDB Metrics, SageMaker Metrics'
+    Value: 'CloudWatch Dashboard, Lambda Error Alarms, API Latency Alarms, DynamoDB Metrics, SageMaker Metrics, Cost Governance, Security Governance, Operational Governance'
     Export:
       Name: !Sub '${AWS::StackName}-MonitoringFeatures'
       
   CurrentSageMakerEndpoint:
     Description: Currently configured SageMaker endpoint for monitoring
     Value: !Ref SageMakerEndpointName
+
+  # NEW: Governance outputs
+  GovernanceAlarms:
+    Description: Governance alarms implemented
+    Value: 'Cost monitoring, Traffic analysis, Authentication security, Data usage governance'
+    Export:
+      Name: !Sub '${AWS::StackName}-GovernanceAlarms'
+
+  CostThreshold:
+    Description: Daily cost threshold configured
+    Value: !Sub '${DailyCostThreshold} USD/day'
