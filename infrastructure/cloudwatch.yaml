@@ -38,7 +38,9 @@ Parameters:
 
 # Conditions for conditional resources
 Conditions:
-  SageMakerConfigured: !Not [!Equals [!Ref SageMakerEndpointName, "NOT_CONFIGURED"]]
+  SageMakerConfigured: !And
+    - !Not [!Equals [!Ref SageMakerEndpointName, "NOT_CONFIGURED"]]
+    - !Not [!Equals [!Ref SageMakerEndpointName, ""]]
 
 Resources:
   # CloudWatch Dashboard - FIXED JSON structure
