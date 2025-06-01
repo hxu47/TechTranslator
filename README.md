@@ -7,6 +7,7 @@ A cloud-native application that bridges the communication gap between data scien
 ## 🎯 Project Overview
 
 TechTranslator translates complex data science concepts like R-squared, loss ratio, and predictive models into clear, contextual explanations tailored for different insurance professionals (underwriters, actuaries, executives). The system uses Retrieval Augmented Generation (RAG) and advanced prompt engineering to deliver professional-grade explanations.
+<img src="pics/example1.png" alt="TechTranslator Web Interface" width="600">
 
 ### Key Features
 
@@ -20,6 +21,7 @@ TechTranslator translates complex data science concepts like R-squared, loss rat
 ## 🏗️ Architecture
 
 The application follows a four-layer serverless architecture:
+<img src="pics/architecture.png" alt="TechTranslator Web Interface" width="600">
 
 ### Frontend Layer
 - **S3 Static Website**: React-based web application
@@ -142,12 +144,14 @@ The application uses CloudFormation parameters for configuration:
 - API Gateway metrics (requests, latency, error rates)
 - DynamoDB usage (read/write capacity)
 - SageMaker endpoint performance (when configured)
+<img src="pics/cloudwatch-dashboard.png" alt="TechTranslator Monitoring Dashboard" width="600">
 
 ### Governance Alarms
 - **Cost Governance**: SageMaker spending alerts
 - **Security Governance**: Authentication failure monitoring
 - **Operational Governance**: Unusual traffic detection
 - **Data Governance**: DynamoDB usage monitoring
+<img src="pics/cloudwatch-alarms.png" alt="TechTranslator Governance" width="600">
 
 ## 🧪 Testing
 
