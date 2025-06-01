@@ -8,6 +8,7 @@ A cloud-native application that bridges the communication gap between data scien
 
 TechTranslator translates complex data science concepts like R-squared, loss ratio, and predictive models into clear, contextual explanations tailored for different insurance professionals (underwriters, actuaries, executives). The system uses Retrieval Augmented Generation (RAG) and advanced prompt engineering to deliver professional-grade explanations.
 <img src="pics/example1.png" alt="TechTranslator Web Interface" width="600">
+<img src="pics/example2.png" alt="TechTranslator Web Interface" width="600">
 
 ### Key Features
 
