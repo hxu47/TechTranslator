@@ -55,7 +55,7 @@ The application follows a four-layer serverless architecture:
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/hxu47/TechTranslator.git
    cd techtranslator
    ```
 
