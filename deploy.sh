@@ -185,7 +185,7 @@ echo -e "   Dashboard URL: $DASHBOARD_URL"
 echo -e "${YELLOW}📦 Step 9/9: Deploying CloudTrail audit logging...${NC}"
 aws cloudformation deploy \
   --template-file infrastructure/cloudtrail.yaml \
-  --stack-name "${STACK_NAME_PREFIX}-audit" \
+  --stack-name "${STACK_NAME_PREFIX}-cloudtrail" \
   --parameter-overrides \
     ProjectName=$PROJECT_NAME \
     DynamoDBStackName="${STACK_NAME_PREFIX}-dynamodb" \
